@@ -3,127 +3,93 @@
  * @author Murtaza Latif
  *
  * Created on January 15th, 2019, 5:31 PM
- *
- * @defgroup CharacterLCD
- * @brief Driver for Hitachi HD44780-based character LCD
- * @{
  */
 
-#ifndef LCD_H
-#define LCD_H
+#ifndef LOGS_H
+#define LOGS_H
 
 /********************************* Includes **********************************/
-#include <xc.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include "configureBits.h"
 
 /********************************** Macros ***********************************/
-#define RS LATDbits.LATD2          
-#define E  LATDbits.LATD3
+#define SUCCESS 1
+#define FAIL 0
 
-/** @brief Clears both LCD lines */
-#define lcd_clear(){\
-	lcdInst(0x01);\
-	__delay_ms(7);\
-}
-
- /* Sets cursor position to start of second line. */
- #define lcd_newline() {\
-    lcdInst(0xC0);\
-    __delay_ms(2);\
- }
-
-/** @brief Sets cursor position to start of first line */
-#define lcd_home(){\
-	lcdInst(0x80);\
-	__delay_ms(2);\
-}
-
-/**
- * @brief Sets the cursor's position to a specific display data RAM (DDRAM)
- *        address
- * @param addr The DDRAM address to move the cursor to (min: 0, max: 127)
- * @note The cursor will not be visible at all addresses
- */
-#define lcd_set_ddram_addr(addr){\
-    lcdInst(0x80 | addr);\
-}
-
-/**
- * @brief Backlight and cursor control
- * @param display_on Turns on the backlight if true, otherwise turns it off
- * @param cursor_on Turns on cursor if true, otherwise turns it off
- * @param blink_cursor Blinks the cursor if true, otherwise cursor is static
- */
-#define lcd_display_control(\
-	display_on,\
-	cursor_on,\
-	blink_cursor\
-)\
-{\
-	lcdInst(\
-        (unsigned char)(8 | (display_on << 2) | (cursor_on << 1) | blink_cursor)\
-    );\
-}
-
+#define ADDR_LOGCOUNT 0x00
+#define ADDR_FIRST_LOG 0x01
+#define MAX_LOGS 12
 /******************************** Constants **********************************/
-// Display dimensions as seen in the real world (before you use these in your
-// code, double-check that they match the size of your LCD)
-extern const unsigned char LCD_SIZE_HORZ; /**< Number of visible columns */
-extern const unsigned char LCD_SIZE_VERT; /**< Number of visible rows    */
 
-extern const unsigned char LCD_LINE1_ADDR; /**< Address of first line */
-extern const unsigned char LCD_LINE2_ADDR; /**< Address of 2nd line   */
-extern const unsigned char LCD_LINE3_ADDR; /**< Address of 3rd line   */
-extern const unsigned char LCD_LINE4_ADDR; /**< Address of 4th line   */
 
 /********************************** Types ************************************/
-/** @brief The directions the display contents and cursor can be shifted */
-typedef enum{
-	LCD_SHIFT_LEFT = 0, /**< Left shift  */
-	LCD_SHIFT_RIGHT = 1 /**< Right shift */
-}lcd_direction_e;
 
 /************************ Public Function Prototypes *************************/
-/**
- * @brief Sends a command to a display control register
- * @param data The command byte for the Hitachi controller
- */
-void lcdInst(char data);
+unsigned char setLogCount(unsigned char newLogCount);
 
-/** @brief Performs the initial setup of the LCD */
-void initLCD(void);
+unsigned char getLogCount();
 
-/**
- * @brief Moves the cursor in a given direction by numChars characters
- * @param numChars The number of character positions by which the cursor is to
- *        be moved (min: 0, max: 127)
- * @param direction The direction for which the shift is to occur
- */
-void lcd_shift_cursor(unsigned char numChars, lcd_direction_e direction);
+void storeOperation(unsigned char operation[32],
+                    unsigned char startTimeOfOperation[5],
+                    unsigned char duration,
+                    unsigned char totalSuppliedTires,
+                    unsigned char totalNumberOfPoles,
+                    unsigned char tiresDeployedOnPole[10],
+                    unsigned char tiresOnPoleAfterOperation[10],
+                    unsigned short distanceOfPole[10]);
+    
+    /* OPERATION STORAGE LEGEND:
+     *  BYTE 00 - 04: Start time of operation
+     * BYTE 00: startTimeOfOperation[0] (seconds)
+     * BYTE 01: startTimeOfOperation[1] (minutes)
+     * BYTE 02: startTimeOfOperation[2] (hours)
+     * BYTE 03: startTimeOfOperation[3] (day of month)
+     * BYTE 04: startTimeOfOperation[4] (month)
+     * 
+     * BYTE 05: duration (time elapsed during operation) 
+     * 
+     * BYTE 06: totalSuppliedTires | totalNumberOfPoles (0xAB)
+     * 
+     *  BYTE 07 - 11: tiresDeployedOnPole | tiresOnPoleAfterOperation for 2 poles (0bD1A1D2A2)
+     * BYTE 07: tiresDeployedOnPole[0] | tiresOnPoleAfterOperation[0] | 
+     *          tiresDeployedOnPole[1] | tiresOnPoleAfterOperation[1]
+     * BYTE 08: tiresDeployedOnPole[2] | tiresOnPoleAfterOperation[2] | 
+     *          tiresDeployedOnPole[3] | tiresOnPoleAfterOperation[3]
+     * BYTE 09: tiresDeployedOnPole[4] | tiresOnPoleAfterOperation[4] | 
+     *          tiresDeployedOnPole[5] | tiresOnPoleAfterOperation[5]
+     * BYTE 10: tiresDeployedOnPole[6] | tiresOnPoleAfterOperation[6] | 
+     *          tiresDeployedOnPole[7] | tiresOnPoleAfterOperation[7]
+     * BYTE 11: tiresDeployedOnPole[8] | tiresOnPoleAfterOperation[8] | 
+     *          tiresDeployedOnPole[9] | tiresOnPoleAfterOperation[9]
+     * 
+     * 
+     * 
+     *  BYTE 12 - 31: distanceOfPole (even bytes are upper two bytes)
+     * BYTE 12: (distanceOfPole[0] & 0xFF00) >> 8
+     * BYTE 13: distanceOfPole[0] & 0x00FF
+     * BYTE 14: (distanceOfPole[1] & 0xFF00) >> 8
+     * BYTE 15: distanceOfPole[1] & 0x00FF
+     * BYTE 16: (distanceOfPole[2] & 0xFF00) >> 8
+     * BYTE 17: distanceOfPole[2] & 0x00FF
+     * BYTE 18: (distanceOfPole[3] & 0xFF00) >> 8
+     * BYTE 19: distanceOfPole[3] & 0x00FF
+     * BYTE 20: (distanceOfPole[4] & 0xFF00) >> 8
+     * BYTE 21: distanceOfPole[4] & 0x00FF
+     * BYTE 22: (distanceOfPole[5] & 0xFF00) >> 8
+     * BYTE 23: distanceOfPole[5] & 0x00FF
+     * BYTE 24: (distanceOfPole[6] & 0xFF00) >> 8
+     * BYTE 25: distanceOfPole[6] & 0x00FF
+     * BYTE 26: (distanceOfPole[7] & 0xFF00) >> 8
+     * BYTE 27: distanceOfPole[7] & 0x00FF
+     * BYTE 28: (distanceOfPole[8] & 0xFF00) >> 8
+     * BYTE 29: distanceOfPole[8] & 0x00FF
+     * BYTE 30: (distanceOfPole[9] & 0xFF00) >> 8
+     * BYTE 31: distanceOfPole[9] & 0x00FF
+     *
+     */
 
-/**
- * @brief Shifts the display in a given direction by numChars characters
- * @param numChars The number of character positions by which the display
- *        contents are to be shifted (min: 0, max: 127)
- * @param direction The direction for which the shift is to occur
- */
-void lcd_shift_display(unsigned char numChars, lcd_direction_e direction);
+unsigned char saveOperationIntoLogs(unsigned char operationNumber, 
+                                    unsigned char operation[32]);
 
-/**
- * @brief Sends a character to the display for printing
- * @details The familiar C function printf internally calls a function named
- *          "putch" (put character) whenever a character is to be written to
- *          the screen. Here we have chosen to implement putch so that it
- *          sends the character to the LCD, but you can choose to implement it
- *          however you'd like (e.g. send the character over UART, etc.)
- * @param data The character (byte) to be displayed
- */
-void putch(char data);
+unsigned char getOperationFromLogs(unsigned char operationNumber,
+                                   unsigned char operation[32]);
 
-/**
- * @}
- */
-
-#endif	/* LCD_H */
+#endif	/* LOGS_H */

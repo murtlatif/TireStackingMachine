@@ -14,9 +14,10 @@
 #include <I2C.h>
 #include "configureBits.h"
 #include "lcd.h"
+#include "logs.h"
+#include "rtc.h"
 
 //** MACROS **//
-
 
 //** CONSTANTS **//
 // Constant values
@@ -31,21 +32,26 @@ typedef enum {
             SC_STANDBY = 0,
             SC_MENU,
             SC_DEBUG,
+            SC_ABOUT,
+            SC_LOGS_MENU,
+            SC_LOGS_VIEW,
 } Screen;
 
 // Number to String Arrays
-static const char * months[] = {"Jan.  ",
-                                "Feb.  ",
-                                "March ",
-                                "April ",
-                                "May   ",
-                                "June  ",
-                                "July  ",
-                                "Aug.  ",
-                                "Sept. ",
-                                "Oct.  ",
-                                "Nov.  ",
-                                "Dec.  "};
+static const char * months[] = {"Jan. ",
+                                "Feb. ",
+                                "March",
+                                "April",
+                                "May  ",
+                                "June ",
+                                "July ",
+                                "Aug. ",
+                                "Sept.",
+                                "Oct. ",
+                                "Nov. ",
+                                "Dec. "};
+
+static const char * dateSuffix[] = {"th", "st", "nd", "rd"};
 
 //** VARIABLES **//
 // State variables
@@ -80,6 +86,7 @@ void refreshScreen(void);
 // Display Functions
 void displayPage(char line1[], char line2[], char line3[], char line4[]);
 void displayMenuPage(char line1[], char line2[], char line3[], bool leftPage, bool rightPage);
+void displayTime(void);
 
 // RTC Functions
 void readTime(unsigned char pTime[7]);
@@ -94,12 +101,48 @@ void main(void) {
         // Screen based actions
         switch (getScreen()) {
             case SC_STANDBY:
+                /* [Any Key] - Go into the main menu
+                 */
                 if (key_was_pressed) {
                     // After any key press, go into the menu
+                    setScreen(SC_MENU);
                     
                     key_was_pressed = false;
                 }
-                lcd_set_ddram_addr()
+                
+                displayTime();
+                
+                break;
+                
+            case SC_MENU:
+                /* [A] Load Tires
+                 * [B] Logs
+                 * [C] About
+                 * [D] Debug
+                 */
+                if (key_was_pressed) {
+                    switch (keys[key]) {
+                        case 'A':
+                            // Set mode to operating
+                            break;
+                            
+                        case 'B':
+                            setScreen(SC_LOGS_MENU);
+                            break;
+                            
+                        case 'C':
+                            setScreen(SC_ABOUT);
+                            break;
+                            
+                        case 'D':
+                            setScreen(SC_DEBUG);
+                            break;
+                    }
+                }
+                break;
+                
+            default:
+                break;
         }
         
     }
@@ -157,6 +200,7 @@ void setStatus(Status newStatus) {
      // Sets the new status and performs an initial function
     switch (newStatus) {
         case ST_STANDBY:
+            setScreen(SC_STANDBY);
             break;
             
         default:
@@ -183,9 +227,27 @@ void setScreen(Screen newScreen) {
             break;
             
         case SC_MENU:
+            displayPage("[A] Load Tires",
+                        "[B] Logs      ",
+                        "[C] About     ",
+                        "[D] Debug     ");
+            break;
+            
+        case SC_LOGS_MENU:
+            displayPage("[A] View Logs ",
+                        "[B] Download  ",
+                        "              ",
+                        "[D] Return    ");
             break;
             
         case SC_DEBUG:
+            displayPage("[A] Log Debug ",
+                        "[B] Actuators ",
+                        "              ",
+                        "[D] Return    ");
+            break;
+            
+        default:
             break;
     }
 }
@@ -236,33 +298,20 @@ void displayTime(void) {
     }
     
     lcd_set_ddram_addr(LCD_LINE_2);
-    printf("%s", months[time[5] - 1]);
-    
-}
-
-// RTC Functions
-void readTime(unsigned char pTime[7]) {
-    // Reset RTC memory pointer
-    I2C_Master_Start(); // Start condition
-    I2C_Master_Write(0b11010000); // 7 bit RTC address + Write
-    I2C_Master_Write(0x00); // Set memory pointer to seconds
-    I2C_Master_Stop(); // Stop condition
-
-    // Read current time
-    I2C_Master_Start(); // Start condition
-    I2C_Master_Write(0b11010001); // 7 bit RTC address + Read
-    for(unsigned char i = 0; i < 6; i++){
-        pTime[i] = I2C_Master_Read(ACK); // Read with ACK to continue reading
+    printf("%s ", months[time[5] - 1]);     // Month
+    printf("%02X", time[4]);                // Date
+    if (time[4] & 0x0F <= 3) {              // Date Suffix
+        printf("%s", dateSuffix[time[4] & 0x0F]);
+    } else {
+        printf("th");
     }
-    pTime[6] = I2C_Master_Read(NACK); // Final Read with NACK
-    I2C_Master_Stop(); // Stop condition
-
-//    // Print received data on LCD
-    lcd_home();
-    printf("%02x/%02x/%02x", time[6],time[5],time[4]); // Print date in YY/MM/DD
-    lcd_set_ddram_addr(LCD_LINE2_ADDR);
-    printf("%02x:%02x:%02x", time[2],time[1],time[0]); // HH:MM:SS
-    __delay_ms(1000);
+    printf(", 20%02X", time[6]);            // Year
+    
+    lcd_set_ddram_addr(LCD_LINE_3);
+    printf("   %02X:", time[2] > 0x12 ? ((((time[2] >> 4) - 1) << 4) | time[2]) : time[2]); // Hour
+    printf("%02X:", time[1]);                       // Minute
+    printf("%02X ", time[0]);                       // Second
+    printf("%s  ", time[2] > 0x12 ? "PM", "AM");    // AM/PM
 }
 
 // Interrupt Functions

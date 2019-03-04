@@ -1,11 +1,7 @@
 /**
  * @file
- * @author Michael Ding
- * @author Tyler Gamvrelis
- *
- * Created on August 4, 2016, 3:22 PM
- *
- * @ingroup I2C
+ * @author Murtaza Latif
+ * Created on February 27th, 2019, 2:42 PM
  */
 
 /********************************* Includes **********************************/

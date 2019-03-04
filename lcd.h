@@ -9,14 +9,11 @@
  * @{
  */
 
-#ifndef LCD_H
-#define LCD_H
+#ifndef RTC_H
+#define RTC_H
 
 /********************************* Includes **********************************/
 #include <xc.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include "configureBits.h"
 
 /********************************** Macros ***********************************/
 #define RS LATDbits.LATD2          
@@ -125,5 +122,7 @@ void putch(char data);
 /**
  * @}
  */
+
+
 
 #endif	/* LCD_H */
