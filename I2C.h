@@ -1,10 +1,7 @@
 /**
  * @file
- * @author Michael Ding
- * @author Tyler Gamvrelis
- *
- * Created summer 2016
- *
+ * @author Murtaza Latif
+ * 
  * @defgroup I2C
  * @brief I2C driver
  * @{

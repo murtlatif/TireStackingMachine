@@ -14,6 +14,7 @@
 
 /********************************* Includes **********************************/
 #include <xc.h>
+#include "configureBits.h"
 
 /********************************** Macros ***********************************/
 #define RS LATDbits.LATD2          
@@ -119,9 +120,16 @@ void lcd_shift_display(unsigned char numChars, lcd_direction_e direction);
  */
 void putch(char data);
 
+void displayPage(char line1[], char line2[], char line3[], char line4[]);
+
+void displayMenuPage(char line1[], char line2[], char line3[], bool leftPage, bool rightPage);
+
+void displayTime(void);
+
 /**
  * @}
  */
+
 
 
 

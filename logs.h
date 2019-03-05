@@ -9,34 +9,56 @@
 #define LOGS_H
 
 /********************************* Includes **********************************/
+#include <xc.h>
+#include "configureBits.h"
 
 /********************************** Macros ***********************************/
 #define SUCCESS 1
 #define FAIL 0
 
-#define ADDR_LOGCOUNT 0x00
-#define ADDR_FIRST_LOG 0x01
-#define MAX_LOGS 12
+#define ADDR_LOGSLOTS_LOW 0x00
+#define ADDR_LOGSLOTS_HIGH 0x01
+#define ADDR_FIRST_LOG 0x02
+
+#define MAX_LOGS 16
 /******************************** Constants **********************************/
 
 
 /********************************** Types ************************************/
+typedef struct Operation {
+     unsigned char condensedOperation[32];
+
+     // Stores information
+     unsigned char startTime[5];
+     unsigned char duration;
+     unsigned char totalSuppliedTires;
+     unsigned char totalNumberOfPoles;
+     unsigned char tiresDeployedOnPole[10];
+     unsigned char tiresOnPoleAfterOperation[10];
+     unsigned short distanceOfPole[10];
+
+     // Unstored (temporary) information
+     unsigned char tiresRemaining;
+     unsigned short position;
+
+} Operation;
+
+/** @brief Settings for log slots */
+typedef enum {
+	AVAILABLE = 0,
+	USED = 1
+} logslot_setting;
 
 /************************ Public Function Prototypes *************************/
-unsigned char setLogCount(unsigned char newLogCount);
+unsigned char writeAllLogSlots(unsigned short newLogSlots);
 
-unsigned char getLogCount();
+unsigned char setLogSlot(unsigned char slotNumber, logslot_setting setting);
 
-void storeOperation(unsigned char operation[32],
-                    unsigned char startTimeOfOperation[5],
-                    unsigned char duration,
-                    unsigned char totalSuppliedTires,
-                    unsigned char totalNumberOfPoles,
-                    unsigned char tiresDeployedOnPole[10],
-                    unsigned char tiresOnPoleAfterOperation[10],
-                    unsigned short distanceOfPole[10]);
-    
-    /* OPERATION STORAGE LEGEND:
+logslot_setting getLogSlot(unsigned char slotNumber);
+
+unsigned char getSlotsUsed(void);
+
+/* OPERATION STORAGE LEGEND:
      *  BYTE 00 - 04: Start time of operation
      * BYTE 00: startTimeOfOperation[0] (seconds)
      * BYTE 01: startTimeOfOperation[1] (minutes)
@@ -58,9 +80,7 @@ void storeOperation(unsigned char operation[32],
      * BYTE 10: tiresDeployedOnPole[6] | tiresOnPoleAfterOperation[6] | 
      *          tiresDeployedOnPole[7] | tiresOnPoleAfterOperation[7]
      * BYTE 11: tiresDeployedOnPole[8] | tiresOnPoleAfterOperation[8] | 
-     *          tiresDeployedOnPole[9] | tiresOnPoleAfterOperation[9]
-     * 
-     * 
+     *          tiresDeployedOnPole[9] | tiresOnPoleAfterOperation[9] 
      * 
      *  BYTE 12 - 31: distanceOfPole (even bytes are upper two bytes)
      * BYTE 12: (distanceOfPole[0] & 0xFF00) >> 8
@@ -83,13 +103,14 @@ void storeOperation(unsigned char operation[32],
      * BYTE 29: distanceOfPole[8] & 0x00FF
      * BYTE 30: (distanceOfPole[9] & 0xFF00) >> 8
      * BYTE 31: distanceOfPole[9] & 0x00FF
-     *
      */
 
-unsigned char saveOperationIntoLogs(unsigned char operationNumber, 
-                                    unsigned char operation[32]);
+void storeCondensedOperation(Operation op);
 
-unsigned char getOperationFromLogs(unsigned char operationNumber,
-                                   unsigned char operation[32]);
+void unpackCondensedOperation(Operation op);
+
+unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation op);
+
+unsigned char getCondensedOperationFromLogs(Operation op, unsigned char slotNumber);
 
 #endif	/* LOGS_H */

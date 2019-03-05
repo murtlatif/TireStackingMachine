@@ -46,77 +46,75 @@ static inline unsigned char EEPROM_WriteByte(unsigned char eepromAdr, unsigned c
     }
 }
 /***************************** Public Functions ******************************/
-unsigned char setLogCount(unsigned char newLogCount) {
-    if (newLogCount > MAX_LOGS) {
+unsigned char writeAllLogSlots(unsigned short newLogSlots) {
+    unsigned char successful = EEPROM_WriteByte(ADDR_LOGSLOTS_LOW, (newLogSlots >> 8) & 0xFF;
+    if (successful == FAIL) {
         return FAIL;
     }
-    
-    unsigned char successful = EEPROM_WriteByte(ADDR_LOGCOUNT, newLogCount);
+
+    successful = EEPROM_WriteByte(ADDR_LOGSLOTS_HIGH, (newLogSlots & 0xFF));
     return successful;
 }
 
-unsigned char getLogCount() {
-    return EEPROM_ReadByte(ADDR_LOGCOUNT);
+unsigned char setLogSlot(unsigned char slotNumber, logslot_setting setting) {
+    // Must be a valid slot
+    if (slotNumber > MAX_LOGS) {
+        return FAIL;
+    }
+
+    // Select logslot address depending on requested slot number
+    unsigned char logslot_addr = ADDR_LOGSLOTS_LOW;
+    if (slotNumber > 7) {
+        logslot_addr = ADDR_LOGSLOTS_HIGH;
+    }
+
+    // Retrieve log slot information
+    unsigned char logslotList = EEPROM_ReadByte(logslot_addr);
+
+    // Set the slot number depending on the setting
+    if (setting == AVAILABLE) {
+        logslotList &= ~(1 << (7 - (slotNumber % 8));
+    } else if (setting == USED) {
+        logslotList |= 1 << (7 - (slotNumber % 8));
+    } else {
+        return FAIL;
+    }
+    
+    // Write new logslot list to EEPROM
+    unsigned char successful = EEPROM_WriteByte(logslot_addr, logslotList);
+    return successful;
 }
 
-void storeOperation(unsigned char operation[32],
-                    unsigned char startTimeOfOperation[5],
-                    unsigned char duration,
-                    unsigned char totalSuppliedTires,
-                    unsigned char totalNumberOfPoles,
-                    unsigned char tiresDeployedOnPole[10],
-                    unsigned char tiresOnPoleAfterOperation[10],
-                    unsigned short distanceOfPole[10]) {
-    
-    /* OPERATION STORAGE LEGEND:
-     *  BYTE 00 - 04: Start time of operation
-     * BYTE 00: startTimeOfOperation[0] (seconds)
-     * BYTE 01: startTimeOfOperation[1] (minutes)
-     * BYTE 02: startTimeOfOperation[2] (hours)
-     * BYTE 03: startTimeOfOperation[3] (day of month)
-     * BYTE 04: startTimeOfOperation[4] (month)
-     * 
-     * BYTE 05: duration (time elapsed during operation) 
-     * 
-     * BYTE 06: totalSuppliedTires | totalNumberOfPoles (0xAB)
-     * 
-     *  BYTE 07 - 11: tiresDeployedOnPole | tiresOnPoleAfterOperation for 2 poles (0bD1A1D2A2)
-     * BYTE 07: tiresDeployedOnPole[0] | tiresOnPoleAfterOperation[0] | 
-     *          tiresDeployedOnPole[1] | tiresOnPoleAfterOperation[1]
-     * BYTE 08: tiresDeployedOnPole[2] | tiresOnPoleAfterOperation[2] | 
-     *          tiresDeployedOnPole[3] | tiresOnPoleAfterOperation[3]
-     * BYTE 09: tiresDeployedOnPole[4] | tiresOnPoleAfterOperation[4] | 
-     *          tiresDeployedOnPole[5] | tiresOnPoleAfterOperation[5]
-     * BYTE 10: tiresDeployedOnPole[6] | tiresOnPoleAfterOperation[6] | 
-     *          tiresDeployedOnPole[7] | tiresOnPoleAfterOperation[7]
-     * BYTE 11: tiresDeployedOnPole[8] | tiresOnPoleAfterOperation[8] | 
-     *          tiresDeployedOnPole[9] | tiresOnPoleAfterOperation[9]
-     * 
-     * 
-     * 
-     *  BYTE 12 - 31: distanceOfPole (even bytes are upper two bytes)
-     * BYTE 12: (distanceOfPole[0] & 0xFF00) >> 8
-     * BYTE 13: distanceOfPole[0] & 0x00FF
-     * BYTE 14: (distanceOfPole[1] & 0xFF00) >> 8
-     * BYTE 15: distanceOfPole[1] & 0x00FF
-     * BYTE 16: (distanceOfPole[2] & 0xFF00) >> 8
-     * BYTE 17: distanceOfPole[2] & 0x00FF
-     * BYTE 18: (distanceOfPole[3] & 0xFF00) >> 8
-     * BYTE 19: distanceOfPole[3] & 0x00FF
-     * BYTE 20: (distanceOfPole[4] & 0xFF00) >> 8
-     * BYTE 21: distanceOfPole[4] & 0x00FF
-     * BYTE 22: (distanceOfPole[5] & 0xFF00) >> 8
-     * BYTE 23: distanceOfPole[5] & 0x00FF
-     * BYTE 24: (distanceOfPole[6] & 0xFF00) >> 8
-     * BYTE 25: distanceOfPole[6] & 0x00FF
-     * BYTE 26: (distanceOfPole[7] & 0xFF00) >> 8
-     * BYTE 27: distanceOfPole[7] & 0x00FF
-     * BYTE 28: (distanceOfPole[8] & 0xFF00) >> 8
-     * BYTE 29: distanceOfPole[8] & 0x00FF
-     * BYTE 30: (distanceOfPole[9] & 0xFF00) >> 8
-     * BYTE 31: distanceOfPole[9] & 0x00FF
-     *
-     */
+logslot_setting getLogSlot(unsigned char slotNumber) {
+    // Retrieve the correct log slot address based on the slot number
+    unsigned char logslot_addr = ADDR_LOGSLOTS_LOW;
+    if (slotNumber > 7) {
+        logslot_addr = ADDR_LOGSLOTS_HIGH;
+    }
+
+    // Retrieve the log slot list from EEPROM
+    unsigned char logslotList = EEPROM_ReadByte(logslot_addr);
+
+    // Return the bit corresponding to the slot number
+    return (logslotList >> (7 - (slotNumber % 8))) & 1;
+}
+
+unsigned char getSlotsUsed(void) {
+    unsigned short logslotValues = (EEPROM_ReadByte(ADDR_LOGSLOTS_LOW) << 8) | EEPROM_ReadByte(ADDR_LOGSLOTS_HIGH);
+    unsigned char count = 0;
+
+    // Count the number of 1's in the list of log slots
+    while (logslotValues > 0) {
+        if ((logslotValues & 1) == USED) {
+            count++;
+        }
+        logslotValues >>= 1;
+    }
+
+    return count;
+}
+
+void storeCondensedOperation(Operation op) {
     char i = 0;     // Temporary variable for running loops
     unsigned char currentAddr = 0;  // Current address being stored in operation
     unsigned char leftHalfByte = 0x00;  // Stores tire info about Pole 1 + (2n)
@@ -124,71 +122,107 @@ void storeOperation(unsigned char operation[32],
     
     // Store BYTE 00 - 04
     for (i = 0; i < 5; i++) {
-        operation[currentAddr] = startTimeOfOperation[i];
+        op.condensedOperation[currentAddr] = op.startTime[i];
         currentAddr++;
     }
     
     // Store BYTE 05
-    operation[currentAddr] = duration;
+    op.condensedOperation[currentAddr] = op.duration;
     currentAddr++;
     
     // Store BYTE 06
-    operation[currentAddr] = ((totalSuppliedTires & 0x0F) << 4) | (totalNumberOfPoles & 0x0F);
+    op.condensedOperation[currentAddr] = ((op.totalSuppliedTires & 0x0F) << 4) | (op.totalNumberOfPoles & 0x0F);
     currentAddr++;
     
     // Store BYTE 07 - 11
-    for (i = 0; i < totalNumberOfPoles; i++) {
+    for (i = 0; i < op.totalNumberOfPoles; i++) {
         if (i % 2 == 0) {
-            leftHalfByte = ((tiresDeployedOnPole[i] & 0x03) << 2) | (tiresOnPoleAfterOperation[i] & 0x03);
-            if (i == totalNumberOfPoles - 1) {
-                operation[currentAddr] = (leftHalfByte << 4);
+            leftHalfByte = ((op.tiresDeployedOnPole[i] & 0x03) << 2) | (op.tiresOnPoleAfterOperation[i] & 0x03);
+            if (i == op.totalNumberOfPoles - 1) {
+                op.condensedOperation[currentAddr] = (leftHalfByte << 4);
                 currentAddr++;
             }
         } else {
-            rightHalfByte = ((tiresDeployedOnPole[i] & 0x03) << 2) | (tiresOnPoleAfterOperation[i] & 0x03);
-            operation[currentAddr] = (leftHalfByte << 4) | (rightHalfByte);
+            rightHalfByte = ((op.tiresDeployedOnPole[i] & 0x03) << 2) | (op.tiresOnPoleAfterOperation[i] & 0x03);
+            op.condensedOperation[currentAddr] = (leftHalfByte << 4) | (rightHalfByte);
             currentAddr++;
         }
     }
     
-    currentAddr += (totalNumberOfPoles - 10);   // Skip addresses reserved for poles
+    currentAddr += (op.totalNumberOfPoles - 10);   // Skip addresses reserved for poles
     
     // Store BYTE 12 - 31
-    for (i = 0; i < totalNumberOfPoles; i++) {
-        operation[currentAddr] = (distanceOfPole[i] & 0xFF00) >> 8;
+    for (i = 0; i < op.totalNumberOfPoles; i++) {
+        op.condensedOperation[currentAddr] = (op.distanceOfPole[i] & 0xFF00) >> 8;
         currentAddr++;
-        operation[currentAddr] = (distanceOfPole[i] & 0x00FF);
+        operation[currentAddr] = (op.distanceOfPole[i] & 0x00FF);
         currentAddr++;
     }
     
 }
 
-unsigned char saveOperationIntoLogs(unsigned char operationNumber, 
-                                    unsigned char operation[32]) {
-    if (operationNumber > MAX_LOGS) {
+void unpackCondensedOperation(Operation op) {
+    unsigned char currentAddr = 0;
+    for (i = 0; i < 5; i++) {
+        op.startTime[i] = op.condensedOperation[currentAddr];
+        currentAddr++;
+    }
+    
+    op.duration = op.condensedOperation[currentAddr];
+    currentAddr++;
+
+    op.totalSuppliedTires = op.condensedOperation[currentAddr] >> 4;
+    op.totalNumberOfPoles = op.condensedOperation[currentAddr] & 0x0F;
+    currentAddr++;
+
+    for (i = 0; i < op.totalNumberOfPoles; i++) {
+        if (i % 2 == 0) {
+            op.tiresDeployedOnPole[i] = op.condensedOperation[currentAddr] >> 6;
+            op.tiresOnPoleAfterOperation[i] = (op.condensedOperation[currentAddr] >> 4) & 0x3;
+            if (i == op.totalNumberOfPoles - 1) {
+                currentAddr++;
+            }
+        } else {
+            op.tiresDeployedOnPole[i] = (op.condensedOperation[currentAddr] >> 2) & 0x3;
+            op.tiresOnPoleAfterOperation[i] = op.condensedOperation & 0x3;
+            currentAddr++;
+        }
+    }
+
+    currentAddr += ((10 - op.totalNumberOfPoles)) / 2;
+
+    for (i = 0; i < op.totalNumberOfPoles; i++) {
+        op.distanceOfPole[i] = (op.condensedOperation[currentAddr] << 8) | (op.condensedOperation[currentAddr + 1]);
+        currentAddr += 2;
+    }
+
+}
+
+unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation op) {
+    if (slotNumber >= MAX_LOGS) {
         return FAIL;
     }
     
     unsigned char result;
     for (char i = 0; i < 32; i++) {
-        result = EEPROM_WriteByte((operationNumber * LOG_SIZE) + ADDR_FIRST_LOG + i, operation[i]);
+        result = EEPROM_WriteByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG + i, op.condensedOperation[i]);
         if (result == FAIL) {
             return FAIL;
         }
     }
     
-    return SUCCESS;
-    
+    // Write log slot as used
+    result = setLogSlot(slotNumber, USED);
+    return result;   
 }
 
-unsigned char getOperationFromLogs(unsigned char operationNumber,
-                                   unsigned char operation[32]) {
-    if (operationNumber > MAX_LOGS) {
+unsigned char getCondensedOperationFromLogs(Operation op, unsigned char slotNumber) {
+    if (slotNumber > MAX_LOGS) {
         return FAIL;
     }
     
     for (char i = 0; i < 32; i++) {
-        operation[i] = EEPROM_ReadByte((operationNumber * LOG_SIZE) + ADDR_FIRST_LOG + i);
+        op.condensedOperation[i] = EEPROM_ReadByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG + i);
     }
     
     return SUCCESS;
