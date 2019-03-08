@@ -41,6 +41,7 @@ typedef struct Operation {
      // Unstored (temporary) information
      unsigned char tiresRemaining;
      unsigned short position;
+     unsigned char savedSlot;
 
 } Operation;
 

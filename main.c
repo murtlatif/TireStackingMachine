@@ -54,6 +54,10 @@ typedef enum {
     SC_VIEW_RESULTS,
     SC_SAVE,
     SC_SELECT_SAVE_SLOT,
+    SC_OVERWRITE_LOG_VERIFICATION_1,
+    SC_OVERWRITE_LOG_VERIFICATION_2,
+    SC_OVERWRITE_LOG_VERIFICATION_3,
+    SC_SAVE_COMPLETED
 } Screen;
 
 //** VARIABLES **//
@@ -103,6 +107,7 @@ void main(void) {
 
     // Operation Variables
     unsigned char loadedTires = 15;
+    unsigned char step = 0;
     
     // Main Loop
     while (1) {
@@ -115,9 +120,11 @@ void main(void) {
                  */
                 if (key_was_pressed) {
                     // After any key press, go into the menu
+                    counter = 0;
                     setStatus(ST_READY);
                     
                     key_was_pressed = false;
+                    
                 } else {
                     readTime(time);
                     displayTime(time);
@@ -155,9 +162,13 @@ void main(void) {
                     }
 
                     key_was_pressed = false;
+
                 } else {
-                    if (counter == 9) {
-                        setStatus(ST_STANDBY);
+                    if (tick == 999) {
+                        counter++;
+                        if (counter == 10) {
+                            setStatus(ST_STANDBY);
+                        }
                     }
                 }
 
@@ -215,6 +226,8 @@ void main(void) {
                         default:
                             break;
                     }
+
+                    key_was_pressed = false;
                 }
                 break;
 
@@ -232,15 +245,17 @@ void main(void) {
                         case '#':
                             if (loadedTires < MAX_TIRE_CAPACITY) {
                                 loadedTires++;
+                                refreshScreen();
                             }
-                            refreshScreen();
+                            
                             break;
                             
                         case '*':
                             if (loadedTires > 0) {
                                 loadedTires--;
+                                refreshScreen();
                             }
-                            refreshScreen();
+                            
                             break;
                             
                         case 'C':
@@ -288,16 +303,41 @@ void main(void) {
                         // Return to the start line if reached max distance or found max number of poles
                         if ((CURRENT_OPERATION.position >= 400) || CURRENT_OPERATION.totalNumberOfPoles >= 10) {
                             setStatus(ST_OPERATE_RETURN);
-                        }
-
-                        if (CURRENT_OPERATION.position - CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] > SAME_POLE_REGION) {
+                        } else if (CURRENT_OPERATION.position - CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] > SAME_POLE_REGION) {
                             if (readSensor() < POLE_DETECTED_RANGE) {
+                                CURRENT_OPERATION.totalNumberOfPoles++;
+                                CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.position;
+                                CURRENT_OPERATION.tiresOnPoleAfterOperation = getNumberOfTiresOnPole();
                                 setStatus(ST_OPERATE_POLE_DETECTED);
                             }
                         }
+
                         if (tick % 100 == 0) {
                             CURRENT_OPERATION.position++;
                         }
+                        break;
+
+                    case ST_OPERATE_POLE_DETECTED:
+                    // Deploy tire if tire required on pole
+                        if (getNumberOfTiresRequiredForPole() > CURRENT_OPERATION.tiresOnPoleAfterOperation) {
+                            if (CURRENT_OPERATION.tiresRemaining == 0) {
+                                setStatus(ST_OPERATE_RETURN);
+                            } else {
+                                setStatus(ST_OPERATE_DEPLOYING_TIRE);
+                            }
+                        } else {
+                        // Continue driving if no more tires required
+                            if (CURRENT_OPERATION.totalNumberOfPoles == 10) {
+                                // Drive back to start if this pole was the 10th pole
+                                setStatus(ST_OPERATE_RETURN);
+                            } else {
+                                setStatus(ST_OPERATE_DRIVING);
+                            }
+                        }
+                        break;
+
+                    case ST_OPERATE_DEPLOYING_TIRE:
+
                         break;
 
                     case ST_OPERATE_RETURN:
@@ -317,6 +357,7 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'B':
+                            page = 0;
                             setScreen(SC_VIEW_RESULTS);
                             break;
 
@@ -334,12 +375,26 @@ void main(void) {
 
             //===========================================
             case SC_VIEW_RESULTS:
-                /* [D] Back
+                /* <[*] BCK[0] [#]>
                  */
                 if (key_was_pressed) {
                     switch (key) {
-                        case 'D':
+                        case '*':
+                            if (page > 0) {
+                                page--;
+                                refreshScreen();
+                            }
+                            break;
+
+                        case '0':
                             setScreen(SC_TERMINATED);
+                            break;
+
+                        case '#':
+                            if (page < (CURRENT_OPERATION.totalNumberOfPoles + 2)) {
+                                page++;
+                                refreshScreen();
+                            }
                             break;
 
                         default:
@@ -348,6 +403,9 @@ void main(void) {
 
                     key_was_pressed = false;
                 }
+
+                break;
+
             //===========================================
             case SC_SAVE:
                 /* [C] Save
@@ -355,21 +413,26 @@ void main(void) {
                  */
                 if (key_was_pressed) {
                     switch (key) {
-                        case 'C':
+                        case 'B':
                             page = 0;
                             setScreen(SC_SELECT_SAVE_SLOT);
                             break;
 
-                        case 'D':
+                        case 'C':
                             setStatus(ST_READY);
                             break;
 
+                        case 'D':
+                            setScreen(SC_TERMINATED);
+                            break;
+                            
                         default:
                             break;
                     }
 
                     key_was_pressed = false;
                 }
+                break;
 
             //===========================================
             case SC_SELECT_SAVE_SLOT:
@@ -388,13 +451,46 @@ void main(void) {
                             break;
 
                         case '0':
-                            setStatus(ST_READY);
+                            setScreen(SC_SAVE);
                             break;
 
                         case '#':
-                            if (page < 6) {
+                            if (page < 5) {
                                 page++;
                                 refreshScreen();
+                            }
+                            break;
+
+                        case 'A':
+                            if (getLogSlot(page * 3) == USED) {
+                                setScreen(SC_OVERWRITE_LOG_VERIFICATION_1);
+                            } else {
+                                storeCondensedOperation();
+                                saveCondensedOperationIntoLogs(page * 3);
+                                CURRENT_OPERATION.savedSlot = (page * 3) + 1;
+                                setScreen(SC_SAVE_COMPLETED);
+                            }
+                            break;
+
+                        case 'B':
+                            if (getLogSlot((page * 3) + 1) == USED) {
+                                setScreen(SC_OVERWRITE_LOG_VERIFICATION_2);
+                            } else {
+                                storeCondensedOperation();
+                                saveCondensedOperationIntoLogs((page * 3) + 1);
+                                CURRENT_OPERATION.savedSlot = (page * 3) + 2;
+                                setScreen(SC_SAVE_COMPLETED);
+                            }
+                            break;
+
+                        case 'C':
+                            if (getLogSlot((page * 3) + 2) == USED) {
+                                setScreen(SC_OVERWRITE_LOG_VERIFICATION_3);
+                            } else {
+                                storeCondensedOperation();
+                                saveCondensedOperationIntoLogs((page * 3) + 2);
+                                CURRENT_OPERATION.savedSlot = (page * 3) + 3;
+                                setScreen(SC_SAVE_COMPLETED);
                             }
                             break;
 
@@ -408,6 +504,104 @@ void main(void) {
                 break;
 
             //===========================================
+            case SC_OVERWRITE_LOG_VERIFICATION_1:
+                /* [C] No
+                 * [D] Yes
+                 */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'C':
+                            setScreen(SC_SELECT_SAVE_SLOT);
+                            break;
+
+                        case 'D':
+                            storeCondensedOperation();
+                            saveCondensedOperationIntoLogs(page * 3);
+                            CURRENT_OPERATION.savedSlot = (page * 3) + 1;
+                            setScreen(SC_SAVE_COMPLETED);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                }
+                break;
+
+            //===========================================
+            case SC_OVERWRITE_LOG_VERIFICATION_2:
+                /* [C] No
+                 * [D] Yes
+                 */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'C':
+                            setScreen(SC_SELECT_SAVE_SLOT);
+                            break;
+
+                        case 'D':
+                            storeCondensedOperation();
+                            saveCondensedOperationIntoLogs((page * 3) + 1);
+                            CURRENT_OPERATION.savedSlot = (page * 3) + 2;
+                            setScreen(SC_SAVE_COMPLETED);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                }
+                break;
+
+            //===========================================
+            case SC_OVERWRITE_LOG_VERIFICATION_3:
+                /* [C] No
+                 * [D] Yes
+                 */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'C':
+                            setScreen(SC_SELECT_SAVE_SLOT);
+                            break;
+
+                        case 'D':
+                            storeCondensedOperation();
+                            saveCondensedOperationIntoLogs((page * 3) + 2);
+                            CURRENT_OPERATION.savedSlot = (page * 3) + 3;
+                            setScreen(SC_SAVE_COMPLETED);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                }
+                break;
+
+            //===========================================
+            case SC_SAVE_COMPLETED:
+                /* [D] OK
+                 */
+
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            setStatus(ST_READY);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                } 
+                break;
+                break;
+            
+            //===========================================
             default:
                 break;
         }
@@ -418,11 +612,6 @@ void main(void) {
         
         if (tick == 1000) {
             // This occurs every second
-            counter++;
-            
-            if (counter == 10) {
-                counter = 0;
-            }
             tick = 0;
         }
     }
@@ -435,7 +624,9 @@ void initialize(void) {
     // RD3 is the character LCD enable (E)
     // RD4-RD7 are character LCD data lines
     TRISCbits.TRISC0 = 0;
-    LATCbits.LATC0 = 0;
+    TRISCbits.TRISC1 = 0;
+    LATCbits.LATC0 = 0
+    LATCbits.LATC1 = 0;
     
     TRISD = 0x00;
     LATD = 0x00;
@@ -460,6 +651,9 @@ void initialize(void) {
     
     // Set/clear variables
     
+    // Initialize Status
+    setStatus(ST_STANDBY);
+    
     // Write time ( DO NOT UNCOMMENT )
 //    rtcSetTime(valueToWriteToRTC);
 }
@@ -469,26 +663,37 @@ Status getStatus(void) {
 }
 
 void setStatus(Status newStatus) {
-     // Sets the new status and performs an initial function
+    // Sets the new status and performs an initial function
+
+    // Turn off motors if not driving
+    if (newStatus != ST_OPERATE_DRIVING || newStatus != ST_OPERATE_RETURN) {
+        driveDCMotor(MOTOR1, OFF);
+    }
+
     switch (newStatus) {
         case ST_STANDBY:
+        // Places the robot into standby mode (where time displays)
             setScreen(SC_STANDBY);
             break;
             
         case ST_READY:
+        // Status to navigate robot menus
             setScreen(SC_MENU);
             break;
 
         case ST_OPERATE_START:
+        // Status used to begin an operation
             CURRENT_OPERATION = EmptyOperation;
             setScreen(SC_OPERATING);
             break;
 
         case ST_OPERATE_DRIVING:
-            driveMotor();
+        // Status used to drive the robot by powering the motors
+            driveDCMotor(MOTOR1, CLOCKWISE);
             break;
 
         case ST_OPERATE_POLE_DETECTED:
+        // Robot detects pole 
             CURRENT_OPERATION.totalNumberOfPoles++;
             CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.position;
             CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = 0;
@@ -496,10 +701,17 @@ void setStatus(Status newStatus) {
             break;
 
         case ST_OPERATE_DEPLOYING_TIRE:
-            
+        // Robot deploys pole
+
+            break;
+
+        case ST_OPERATE_RETURN:
+        // Robot returns back to the start
+            driveDCMotor(MOTOR1, COUNTER_CLOCKWISE);
             break;
 
         case ST_COMPLETED_OP:
+        // Robot completes operation
             setScreen(SC_TERMINATED);
             break;
 
@@ -522,6 +734,7 @@ void setScreen(Screen newScreen) {
     // Sets the new screen and performs an initial function
     switch (newScreen) {
         case SC_STANDBY:
+        // Standby screen. Time / date displays here
             displayPage("   Skybot Inc   ",
                         "                ",
                         "                ",
@@ -529,6 +742,7 @@ void setScreen(Screen newScreen) {
             break;
             
         case SC_MENU:
+        // Main navigation menu
             displayPage("[A] Load Tires  ",
                         "[B] Logs        ",
                         "[C] About       ",
@@ -536,6 +750,7 @@ void setScreen(Screen newScreen) {
             break;
 
         case SC_ABOUT:
+        // Displays some information about the project
             displayPage("Autonomous tire ",
                         "stacking robot  ",
                         "by Skybot Inc.  ",
@@ -543,6 +758,7 @@ void setScreen(Screen newScreen) {
             break;
             
         case SC_LOGS_MENU:
+        // Navigation menu for logs
             displayPage("[A] View Logs   ",
                         "[B] Download    ",
                         "                ",
@@ -550,6 +766,7 @@ void setScreen(Screen newScreen) {
             break;
             
         case SC_DEBUG:
+        // Debug menu
             displayPage("[A] Motor Debug ",
                         "[B] Log Debug   ",
                         "                ",
@@ -557,6 +774,7 @@ void setScreen(Screen newScreen) {
             break;
 
         case SC_LOAD_TIRES:
+        // Select how many tires are loaded into the robot
             displayPage("                ",
                         "[*]Less  More[#]",
                         "[C] Start op.   ",
@@ -564,6 +782,7 @@ void setScreen(Screen newScreen) {
             break;
 
         case SC_OPERATING:
+        // Screen that displays while the robot is operating
             displayPage("Operating...    ",
                         "                ",
                         "                ",
@@ -571,13 +790,46 @@ void setScreen(Screen newScreen) {
             break;
 
         case SC_TERMINATED:
+        // Termination screen when the operation is complete
             displayPage("Operation Done. ",
                         "[B] View Results",
                         "[C] Finish Op.  ",
                         "                ");
             break;
 
+        case SC_VIEW_RESULTS:
+        // Screen to view the results of the operation (or viewing them through the logs)
+            displayMenuPage("                ",
+                            "                ",
+                            "                ",
+                            page > 0, page < (CURRENT_OPERATION.totalNumberOfPoles + 2));
+
+            if (page == 0) {
+                lcd_set_ddram_addr(LCD_LINE1_ADDR);
+                printf("Day: %s %02X/19", months[CURRENT_OPERATION.startTime[4]], CURRENT_OPERATION.startTime[3])
+                lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                printf("Time:   %02X:%02X:%02X", CURRENT_OPERATION.startTime[2], CURRENT_OPERATION.startTime[1], CURRENT_OPERATION.startTime[0]);
+                lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                printf("Duration:  %02d:%02d", duration/60, duration % 60);
+
+            } else if (page == 1) {
+                lcd_set_ddram_addr(LCD_LINE1_ADDR);
+                printf("Poles Found:  %02d", CURRENT_OPERATION.totalNumberOfPoles);
+                lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                printf("Total Tires:  %02d", CURRENT_OPERATION.totalSuppliedTires);
+
+            } else if (page > 1 && page < CURRENT_OPERATION.totalNumberOfPoles + 2);
+                lcd_set_ddram_addr(LCD_LINE1_ADDR);
+                printf("Pole #dd  %03d cm", CURRENT_OPERATION.distanceOfPole[page - 2]);
+                lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                printf("Tires Stacked: %01d", CURRENT_OPERATION.tiresDeployedOnPole[page - 2]);
+                lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                printf("Tires on Pole: %01d", CURRENT_OPERATION.tiresOnPoleAfterOperation[page - 2]);
+            }
+            break;
+
         case SC_SAVE:
+        // Ask user if they would like to save operation or continue without saving
             displayPage("Save operation? ",
                         "                ",
                         "[C] Save        ",
@@ -585,19 +837,64 @@ void setScreen(Screen newScreen) {
             break;
 
         case SC_SELECT_SAVE_SLOT:
+        // Display menu page for user to select slot to save the operation
             displayMenuPage("                ",
                             "                ",
                             "                ",
-                            page > 0, page < 6);
+                            page > 0, page < 5);
 
             lcd_set_ddram_addr(LCD_LINE1_ADDR);
             printf("[A] Slot %02d %s", (page * 3) + 1, getLogSlot(page * 3) == USED ? "USED" : "    ");
-            if (page < 6) {
+            if (page < 5) {
                 lcd_set_ddram_addr(LCD_LINE2_ADDR);
-                printf("[A] Slot %02d %s", (page * 3) + 2, getLogSlot((page * 3) + 1) == USED ? "USED" : "    ");
+                printf("[B] Slot %02d %s", (page * 3) + 2, getLogSlot((page * 3) + 1) == USED ? "USED" : "    ");
                 lcd_set_ddram_addr(LCD_LINE3_ADDR);
-                printf("[A] Slot %02d %s", (page * 3) + 3, getLogSlot((page * 3) + 2) == USED ? "USED" : "    ");
+                printf("[C] Slot %02d %s", (page * 3) + 3, getLogSlot((page * 3) + 2) == USED ? "USED" : "    ");
             }
+            break;
+
+        case SC_OVERWRITE_LOG_VERIFICATION_1:
+        // Prompt that appear if the user selects a slot on the first row that is already used
+            displayPage("                ",
+                        "Overwrite?      ",
+                        "[C] No          ",
+                        "[D] Yes         ");
+
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+            printf("Slot %02d in use. ", (page * 3) + 1);
+            break;
+
+        case SC_OVERWRITE_LOG_VERIFICATION_2:
+        // Prompt that appear if the user selects a slot on the second row that is already used
+            displayPage("                ",
+                        "Overwrite?      ",
+                        "[C] No          ",
+                        "[D] Yes         ");
+
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+            printf("Slot %02d in use. ", (page * 3) + 2);
+            break;
+
+        case SC_OVERWRITE_LOG_VERIFICATION_3:
+        // Prompt that appear if the user selects a slot on the third row that is already used
+            displayPage("                ",
+                        "Overwrite?      ",
+                        "[C] No          ",
+                        "[D] Yes         ");
+
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+            printf("Slot %02d in use. ", (page * 3) + 3);
+            break;
+
+        case SC_SAVE_COMPLETED:
+        // Confirmation of save prompt
+            displayPage("Saved operation ",
+                        "successfully in ",
+                        "                ",
+                        "[D] OK          ");
+
+            lcd_set_ddram_addr(LCD_LINE3_ADDR);
+            printf("    slot %02d     ", CURRENT_OPERATION.savedSlot);
             break;
 
         default:

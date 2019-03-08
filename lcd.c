@@ -162,7 +162,7 @@ void displayTime(unsigned char time[]) {
             hour = (((time[2] >> 4) - 1) << 4) | ((time[2] & 0xF) - 0x2);
         }
     }
-    printf("   %02X:", hour);            // Hour
+    printf("%02X %02X:",time[2], hour);            // Hour
     printf("%02X:", time[1]);                       // Minute
     printf("%02X ", time[0]);                       // Second
     printf("%s  ", time[2] > 0x12 ? "PM" : "AM");   // AM/PM

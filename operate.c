@@ -14,8 +14,58 @@
 /***************************** Private Functions *****************************/
 
 /***************************** Public Functions ******************************/
-void driveMotor(void) {
-    return;
+void driveDCMotor(motor desiredMotor, motor_setting motorSetting) {
+    if (desiredMotor == MOTOR1 || desiredMotor == MOTOR2) {
+        unsigned char forwardInput;
+        unsigned char backwardInput;
+
+        switch (motorSetting) {
+            case CLOCKWISE:
+                forwardInput = 1;
+                backwardInput = 0;
+                break;
+
+            case COUNTER_CLOCKWISE:
+                forwardInput = 0;
+                backwardInput = 1;
+                break;
+
+            case OFF:
+                forwardInput = 0;
+                backwardInput = 0;
+                break;
+
+            default:
+                forwardInput = 0;
+                backwardInput = 0;
+                break;
+
+        }
+
+        switch (desiredMotor) {
+            case MOTOR1:
+                LATCbits.LATC0 = forwardInput;
+                LATCbits.LATC1 = backwardInput;
+                break;
+
+            case MOTOR2:
+                LATAbits.LATA0 = forwardInput;
+                LATAbits.LATA1 = backwardInput;
+                break;
+        }
+    }
+}
+
+void stepStepper(motor_setting motorSetting, unsigned char step) {
+    
+}
+
+unsigned char getNumberOfTiresOnPole(void) {
+    return 0;
+}
+
+unsigned char getNumberOfTiresRequiredForPole(void) {
+    return 2;
 }
 
 unsigned char readSensor(void) {

@@ -79,18 +79,18 @@ extern const unsigned char LCD_LINE3_ADDR; /**< Address of 3rd line   */
 extern const unsigned char LCD_LINE4_ADDR; /**< Address of 4th line   */
 
 // Number to String Arrays
-static const char * months[] = {"Jan. ",
-                                "Feb. ",
-                                "March",
-                                "April",
-                                "May  ",
-                                "June ",
-                                "July ",
-                                "Aug. ",
-                                "Sept.",
-                                "Oct. ",
-                                "Nov. ",
-                                "Dec. "};
+const char * months[] = {"Jan. ",
+                         "Feb. ",
+                         "March",
+                         "April",
+                         "May  ",
+                         "June ",
+                         "July ",
+                         "Aug. ",
+                         "Sept.",
+                         "Oct. ",
+                         "Nov. ",
+                         "Dec. "};
 
 static const char * dateSuffix[] = {"th", "st", "nd", "rd"};
 /********************************** Types ************************************/
