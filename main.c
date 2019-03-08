@@ -37,18 +37,23 @@ typedef enum {
     ST_OPERATE_DRIVING,
     ST_OPERATE_POLE_DETECTED,
     ST_OPERATE_DEPLOYING_TIRE,
-    ST_OPERATE_RETURN
+    ST_OPERATE_RETURN,
+    ST_COMPLETED_OP
 } Status;
 
 typedef enum {
-            SC_STANDBY = 0,
-            SC_MENU,
-            SC_DEBUG,
-            SC_ABOUT,
-            SC_LOGS_MENU,
-            SC_LOGS_VIEW,
-            SC_LOAD_TIRES,
-            SC_OPERATING
+    SC_STANDBY = 0,
+    SC_MENU,
+    SC_DEBUG,
+    SC_ABOUT,
+    SC_LOGS_MENU,
+    SC_LOGS_VIEW,
+    SC_LOAD_TIRES,
+    SC_OPERATING,
+    SC_TERMINATED,
+    SC_VIEW_RESULTS,
+    SC_SAVE,
+    SC_SELECT_SAVE_SLOT,
 } Screen;
 
 //** VARIABLES **//
@@ -57,6 +62,7 @@ typedef enum {
 Status CURRENT_STATUS;
 Screen CURRENT_SCREEN;
 Operation CURRENT_OPERATION;
+unsigned char page;
 
 // Interrupt Variables
 volatile bool key_was_pressed = false;
@@ -64,13 +70,13 @@ volatile bool emergency_stop_pressed = false;
 volatile unsigned char key;
 
 // RTC Variables
-const char valueToWriteToRTC[7] = {
-    0x00, // Seconds 
-    0x00, // Minutes
-    0x22, // Hours (set to 24 hour mode)
-    0x03, // Weekday
-    0x26, // Day of month
-    0x02, // Month
+char valueToWriteToRTC[7] = {
+    0x30, // Seconds 
+    0x47, // Minutes
+    0x19, // Hours (set to 24 hour mode)
+    0x04, // Weekday
+    0x07, // Day of month
+    0x03, // Month
     0x19  // Year
 };
 
@@ -89,10 +95,12 @@ void main(void) {
     initialize();
     
     // Initialize other variables
+
     // Time Variables
     unsigned short tick = 0;
+    unsigned char counter = 0;
     unsigned char time[7];
-    
+
     // Operation Variables
     unsigned char loadedTires = 15;
     
@@ -110,11 +118,11 @@ void main(void) {
                     setStatus(ST_READY);
                     
                     key_was_pressed = false;
+                } else {
+                    readTime(time);
+                    displayTime(time);
                 }
-                
-                readTime(time);
-                displayTime(time);
-                
+
                 break;
 
             //===============STATUS: READY===============
@@ -125,7 +133,7 @@ void main(void) {
                  * [D] Debug
                  */
                 if (key_was_pressed) {
-                    switch (keys[key]) {
+                    switch (key) {
                         case 'A':
                             setScreen(SC_LOAD_TIRES);
                             break;
@@ -147,6 +155,66 @@ void main(void) {
                     }
 
                     key_was_pressed = false;
+                } else {
+                    if (counter == 9) {
+                        setStatus(ST_STANDBY);
+                    }
+                }
+
+                break;
+            //===========================================
+            case SC_ABOUT:
+                /* [D] Back
+                */
+               if (key_was_pressed) {
+                   switch (key) {
+                        case 'D':
+                            setScreen(SC_MENU);
+                            break;
+
+                        default:
+                            break;
+                   }
+
+                   key_was_pressed = false;
+               }
+               break;
+            
+            //===========================================
+            case SC_DEBUG:
+                /* [A] Actuator Debug
+                 * [B] Log Debug
+                 * 
+                 * [D] Back
+                 */
+                
+                if (key_was_pressed) {
+                   switch (key) {
+                        case 'D':
+                            setScreen(SC_MENU);
+                            break;
+
+                        default:
+                            break;
+                   }
+
+                   key_was_pressed = false;
+               }
+               break;
+
+            //===========================================
+            case SC_LOGS_MENU:
+                /* [D] Back
+                 */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            setScreen(SC_MENU);
+                            break;
+
+                        default:
+                            break;
+                    }
                 }
                 break;
 
@@ -160,7 +228,7 @@ void main(void) {
                 printf("Loading %02d tires", loadedTires);
 
                 if (key_was_pressed) {
-                    switch (keys[key]) {
+                    switch (key) {
                         case '#':
                             if (loadedTires < MAX_TIRE_CAPACITY) {
                                 loadedTires++;
@@ -195,11 +263,12 @@ void main(void) {
 
                 break;
 
-            //===========================================
+            //=============STATUS: OPERATING=============
             case SC_OPERATING:
                 if (key_was_pressed) {
-                    switch (keys[key]) {
-                        case 'A':
+                    switch (key) {
+                        case 'D':
+                            setStatus(ST_COMPLETED_OP);
                             break;
 
                         default:
@@ -208,6 +277,7 @@ void main(void) {
  
                     key_was_pressed = false;
                 }
+                
                 switch (getStatus()) {
                     case ST_OPERATE_START:
                         setStatus(ST_OPERATE_DRIVING);
@@ -238,7 +308,106 @@ void main(void) {
                 }
 
                 break;
+                
+            //=============STATUS: COMPLETED=============
+            case SC_TERMINATED:
+                /* [B] View Results
+                 * [C] Finish Op.
+                 */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'B':
+                            setScreen(SC_VIEW_RESULTS);
+                            break;
 
+                        case 'C':
+                            setScreen(SC_SAVE);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                } 
+                break;
+
+            //===========================================
+            case SC_VIEW_RESULTS:
+                /* [D] Back
+                 */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            setScreen(SC_TERMINATED);
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    key_was_pressed = false;
+                }
+            //===========================================
+            case SC_SAVE:
+                /* [C] Save
+                 * [D] Don't Save
+                 */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'C':
+                            page = 0;
+                            setScreen(SC_SELECT_SAVE_SLOT);
+                            break;
+
+                        case 'D':
+                            setStatus(ST_READY);
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    key_was_pressed = false;
+                }
+
+            //===========================================
+            case SC_SELECT_SAVE_SLOT:
+                /* <[*] BCK[0] [#]>
+                 * [A] Slot #<1, 4, 7, 10, 13, 16>
+                 * [B] Slot #<2, 5, 8, 11, 14>
+                 * [C] Slot #<3, 6, 9, 12, 15>
+                */
+                if (key_was_pressed) {
+                    switch (key) {
+                        case '*':
+                            if (page > 0) {
+                                page--;
+                                refreshScreen();
+                            }
+                            break;
+
+                        case '0':
+                            setStatus(ST_READY);
+                            break;
+
+                        case '#':
+                            if (page < 6) {
+                                page++;
+                                refreshScreen();
+                            }
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    key_was_pressed = false;
+                }
+               
+                break;
+
+            //===========================================
             default:
                 break;
         }
@@ -249,7 +418,11 @@ void main(void) {
         
         if (tick == 1000) {
             // This occurs every second
-
+            counter++;
+            
+            if (counter == 10) {
+                counter = 0;
+            }
             tick = 0;
         }
     }
@@ -261,6 +434,9 @@ void initialize(void) {
     // RD2 is the character LCD RS
     // RD3 is the character LCD enable (E)
     // RD4-RD7 are character LCD data lines
+    TRISCbits.TRISC0 = 0;
+    LATCbits.LATC0 = 0;
+    
     TRISD = 0x00;
     LATD = 0x00;
     
@@ -284,6 +460,8 @@ void initialize(void) {
     
     // Set/clear variables
     
+    // Write time ( DO NOT UNCOMMENT )
+//    rtcSetTime(valueToWriteToRTC);
 }
 
 Status getStatus(void) {
@@ -303,6 +481,7 @@ void setStatus(Status newStatus) {
 
         case ST_OPERATE_START:
             CURRENT_OPERATION = EmptyOperation;
+            setScreen(SC_OPERATING);
             break;
 
         case ST_OPERATE_DRIVING:
@@ -318,6 +497,10 @@ void setStatus(Status newStatus) {
 
         case ST_OPERATE_DEPLOYING_TIRE:
             
+            break;
+
+        case ST_COMPLETED_OP:
+            setScreen(SC_TERMINATED);
             break;
 
 
@@ -340,9 +523,9 @@ void setScreen(Screen newScreen) {
     switch (newScreen) {
         case SC_STANDBY:
             displayPage("   Skybot Inc   ",
-                        "",
-                        "",
-                        "");
+                        "                ",
+                        "                ",
+                        "                ");
             break;
             
         case SC_MENU:
@@ -350,6 +533,13 @@ void setScreen(Screen newScreen) {
                         "[B] Logs        ",
                         "[C] About       ",
                         "[D] Debug       ");
+            break;
+
+        case SC_ABOUT:
+            displayPage("Autonomous tire ",
+                        "stacking robot  ",
+                        "by Skybot Inc.  ",
+                        "[A] Back        ");
             break;
             
         case SC_LOGS_MENU:
@@ -360,8 +550,8 @@ void setScreen(Screen newScreen) {
             break;
             
         case SC_DEBUG:
-            displayPage("[A] Log Debug   ",
-                        "[B] Actuators   ",
+            displayPage("[A] Motor Debug ",
+                        "[B] Log Debug   ",
                         "                ",
                         "[D] Back        ");
             break;
@@ -373,12 +563,50 @@ void setScreen(Screen newScreen) {
                         "[D] Back        ");
             break;
 
+        case SC_OPERATING:
+            displayPage("Operating...    ",
+                        "                ",
+                        "                ",
+                        "[D] EMRGNCY STOP");
+            break;
+
+        case SC_TERMINATED:
+            displayPage("Operation Done. ",
+                        "[B] View Results",
+                        "[C] Finish Op.  ",
+                        "                ");
+            break;
+
+        case SC_SAVE:
+            displayPage("Save operation? ",
+                        "                ",
+                        "[C] Save        ",
+                        "[D] Don't Save  ");
+            break;
+
+        case SC_SELECT_SAVE_SLOT:
+            displayMenuPage("                ",
+                            "                ",
+                            "                ",
+                            page > 0, page < 6);
+
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+            printf("[A] Slot %02d %s", (page * 3) + 1, getLogSlot(page * 3) == USED ? "USED" : "    ");
+            if (page < 6) {
+                lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                printf("[A] Slot %02d %s", (page * 3) + 2, getLogSlot((page * 3) + 1) == USED ? "USED" : "    ");
+                lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                printf("[A] Slot %02d %s", (page * 3) + 3, getLogSlot((page * 3) + 2) == USED ? "USED" : "    ");
+            }
+            break;
+
         default:
             return;
             break;
 
-        CURRENT_SCREEN = newScreen;
     }
+    
+    CURRENT_SCREEN = newScreen;
 }
 
 void refreshScreen(void) {

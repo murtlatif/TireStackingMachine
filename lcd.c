@@ -153,12 +153,17 @@ void displayTime(unsigned char time[]) {
     printf(", 20%02X", time[6]);            // Year
     
     lcd_set_ddram_addr(LCD_LINE3_ADDR);
-    unsigned char hourInAmPm;
+    unsigned char hour;
+    // Getting the hour into 12 hour time
     if (time[2] > 0x12) {
-        
+        if ((time[2] & 0xF) < 2) {
+            hour = (((time[2] >> 4) - 2) << 4) | 0xA - (2 - ((time[2] & 0xF)));
+        } else {
+            hour = (((time[2] >> 4) - 1) << 4) | ((time[2] & 0xF) - 0x2);
+        }
     }
-    printf("%02X %02X:", time[2], time[2] > 0x12 ? ((((time[2] >> 4) - 1) << 4) | (time[2] & 0xF)) : time[2]); // Hour
+    printf("   %02X:", hour);            // Hour
     printf("%02X:", time[1]);                       // Minute
     printf("%02X ", time[0]);                       // Second
-    printf("%s  ", time[2] > 0x12 ? "PM" : "AM");    // AM/PM
+    printf("%s  ", time[2] > 0x12 ? "PM" : "AM");   // AM/PM
 }
