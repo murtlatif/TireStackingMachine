@@ -1,19 +1,12 @@
-/**
- * @file
- * @author Murtaza Latif
- *
- * Created on January 15th, 2019, 5:31 PM
- */
 
 #ifndef OPERATE_H
 #define OPERATE_H
 
 /********************************* Includes **********************************/
-#include <xc.h>
-#include "configureBits.h"
 
 /********************************** Macros ***********************************/
-
+#define POLE_DETECTED_RANGE 10
+#define SAME_POLE_REGION 10
 /******************************** Constants **********************************/
 
 
@@ -22,6 +15,6 @@
 /************************ Public Function Prototypes *************************/
 void driveMotor(void);
 
-void readSensor(void);
+unsigned char readSensor(void);
 
 #endif	/* OPERATE_H */

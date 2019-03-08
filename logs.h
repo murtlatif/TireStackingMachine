@@ -20,6 +20,7 @@
 #define ADDR_LOGSLOTS_HIGH 0x01
 #define ADDR_FIRST_LOG 0x02
 
+#define LOG_SIZE 32
 #define MAX_LOGS 16
 /******************************** Constants **********************************/
 

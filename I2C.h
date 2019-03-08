@@ -13,7 +13,6 @@
 /********************************* Includes **********************************/
 #include <xc.h>
 #include "configureBits.h"
-
 /********************************** Macros ***********************************/
 // These mean different things depending on the context, see "Understanding the
 // I2C bus" by Texas Instruments for more details
@@ -63,6 +62,12 @@ void I2C_Master_Write(unsigned byteToWrite);
  * @return The byte received
  */
 unsigned char I2C_Master_Read(unsigned char ackBit);
+
+void readTime(unsigned char pTime[]);
+
+void condensedReadTime(unsigned char pTime[]);
+
+void rtcSetTime(char timeToInitialize[]);
 
 /**
  * @}

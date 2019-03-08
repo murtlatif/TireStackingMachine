@@ -8,7 +8,6 @@
 
 /********************************* Includes **********************************/
 #include "lcd.h"
-#include "rtc.h"
 
 /******************************** Constants **********************************/
 const unsigned char LCD_SIZE_HORZ = 16;
@@ -122,7 +121,7 @@ void displayPage(char line1[], char line2[], char line3[], char line4[]) {
 void displayMenuPage(char line1[], char line2[], char line3[], bool leftPage, bool rightPage) {
     // Displays text on the LCD screen and displays a menu at the bottom
     // depending on whether leftPage and rightPage are true/false.
-    displayPage(line1, line2, line3, {});
+    displayPage(line1, line2, line3, "");
     if (leftPage) {
         printf("%c[*] ", 0b01111111);
     } else {
@@ -136,28 +135,30 @@ void displayMenuPage(char line1[], char line2[], char line3[], bool leftPage, bo
     }
 }
 
-void displayTime(void) {
-    unsigned char time[7];
-    readTime(time);
+void displayTime(unsigned char time[]) {
     
     // Convert time to decimal from 1-12
     if (time[5] > 0x09) {
         time[5] = time[5] - 6;
     }
     
-    lcd_set_ddram_addr(LCD_LINE_2);
+    lcd_set_ddram_addr(LCD_LINE2_ADDR);
     printf("%s ", months[time[5] - 1]);     // Month
     printf("%02X", time[4]);                // Date
-    if (time[4] & 0x0F <= 3) {              // Date Suffix
-        printf("%s", dateSuffix[time[4] & 0x0F]);
+    if ((time[4] & 0x0F) <= 3) {              // Date Suffix
+        printf("%s", dateSuffix[(time[4] & 0x0F)]);
     } else {
         printf("th");
     }
     printf(", 20%02X", time[6]);            // Year
     
-    lcd_set_ddram_addr(LCD_LINE_3);
-    printf("   %02X:", time[2] > 0x12 ? ((((time[2] >> 4) - 1) << 4) | time[2]) : time[2]); // Hour
+    lcd_set_ddram_addr(LCD_LINE3_ADDR);
+    unsigned char hourInAmPm;
+    if (time[2] > 0x12) {
+        
+    }
+    printf("%02X %02X:", time[2], time[2] > 0x12 ? ((((time[2] >> 4) - 1) << 4) | (time[2] & 0xF)) : time[2]); // Hour
     printf("%02X:", time[1]);                       // Minute
     printf("%02X ", time[0]);                       // Second
-    printf("%s  ", time[2] > 0x12 ? "PM", "AM");    // AM/PM
+    printf("%s  ", time[2] > 0x12 ? "PM" : "AM");    // AM/PM
 }

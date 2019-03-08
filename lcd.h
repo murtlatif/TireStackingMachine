@@ -15,6 +15,8 @@
 /********************************* Includes **********************************/
 #include <xc.h>
 #include "configureBits.h"
+#include <stdbool.h>
+#include <stdio.h>
 
 /********************************** Macros ***********************************/
 #define RS LATDbits.LATD2          
@@ -76,6 +78,21 @@ extern const unsigned char LCD_LINE2_ADDR; /**< Address of 2nd line   */
 extern const unsigned char LCD_LINE3_ADDR; /**< Address of 3rd line   */
 extern const unsigned char LCD_LINE4_ADDR; /**< Address of 4th line   */
 
+// Number to String Arrays
+static const char * months[] = {"Jan. ",
+                                "Feb. ",
+                                "March",
+                                "April",
+                                "May  ",
+                                "June ",
+                                "July ",
+                                "Aug. ",
+                                "Sept.",
+                                "Oct. ",
+                                "Nov. ",
+                                "Dec. "};
+
+static const char * dateSuffix[] = {"th", "st", "nd", "rd"};
 /********************************** Types ************************************/
 /** @brief The directions the display contents and cursor can be shifted */
 typedef enum{
@@ -124,8 +141,7 @@ void displayPage(char line1[], char line2[], char line3[], char line4[]);
 
 void displayMenuPage(char line1[], char line2[], char line3[], bool leftPage, bool rightPage);
 
-void displayTime(void);
-
+void displayTime(unsigned char time[]);
 /**
  * @}
  */

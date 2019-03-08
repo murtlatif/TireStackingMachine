@@ -47,7 +47,7 @@ static inline unsigned char EEPROM_WriteByte(unsigned char eepromAdr, unsigned c
 }
 /***************************** Public Functions ******************************/
 unsigned char writeAllLogSlots(unsigned short newLogSlots) {
-    unsigned char successful = EEPROM_WriteByte(ADDR_LOGSLOTS_LOW, (newLogSlots >> 8) & 0xFF;
+    unsigned char successful = EEPROM_WriteByte(ADDR_LOGSLOTS_LOW, (newLogSlots >> 8) & 0xFF);
     if (successful == FAIL) {
         return FAIL;
     }
@@ -73,7 +73,7 @@ unsigned char setLogSlot(unsigned char slotNumber, logslot_setting setting) {
 
     // Set the slot number depending on the setting
     if (setting == AVAILABLE) {
-        logslotList &= ~(1 << (7 - (slotNumber % 8));
+        logslotList &= ~(1 << (7 - (slotNumber % 8)));
     } else if (setting == USED) {
         logslotList |= 1 << (7 - (slotNumber % 8));
     } else {
@@ -155,7 +155,7 @@ void storeCondensedOperation(Operation op) {
     for (i = 0; i < op.totalNumberOfPoles; i++) {
         op.condensedOperation[currentAddr] = (op.distanceOfPole[i] & 0xFF00) >> 8;
         currentAddr++;
-        operation[currentAddr] = (op.distanceOfPole[i] & 0x00FF);
+        op.condensedOperation[currentAddr] = (op.distanceOfPole[i] & 0x00FF);
         currentAddr++;
     }
     
@@ -163,7 +163,7 @@ void storeCondensedOperation(Operation op) {
 
 void unpackCondensedOperation(Operation op) {
     unsigned char currentAddr = 0;
-    for (i = 0; i < 5; i++) {
+    for (char i = 0; i < 5; i++) {
         op.startTime[i] = op.condensedOperation[currentAddr];
         currentAddr++;
     }
@@ -175,7 +175,7 @@ void unpackCondensedOperation(Operation op) {
     op.totalNumberOfPoles = op.condensedOperation[currentAddr] & 0x0F;
     currentAddr++;
 
-    for (i = 0; i < op.totalNumberOfPoles; i++) {
+    for (char i = 0; i < op.totalNumberOfPoles; i++) {
         if (i % 2 == 0) {
             op.tiresDeployedOnPole[i] = op.condensedOperation[currentAddr] >> 6;
             op.tiresOnPoleAfterOperation[i] = (op.condensedOperation[currentAddr] >> 4) & 0x3;
@@ -184,14 +184,14 @@ void unpackCondensedOperation(Operation op) {
             }
         } else {
             op.tiresDeployedOnPole[i] = (op.condensedOperation[currentAddr] >> 2) & 0x3;
-            op.tiresOnPoleAfterOperation[i] = op.condensedOperation & 0x3;
+            op.tiresOnPoleAfterOperation[i] = op.condensedOperation[currentAddr] & 0x3;
             currentAddr++;
         }
     }
 
     currentAddr += ((10 - op.totalNumberOfPoles)) / 2;
 
-    for (i = 0; i < op.totalNumberOfPoles; i++) {
+    for (char i = 0; i < op.totalNumberOfPoles; i++) {
         op.distanceOfPole[i] = (op.condensedOperation[currentAddr] << 8) | (op.condensedOperation[currentAddr + 1]);
         currentAddr += 2;
     }

@@ -9,17 +9,18 @@
 
 //** INCLUDES **//
 #include <xc.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <I2C.h>
 #include "configureBits.h"
+
 #include "lcd.h"
+#include "I2C.h"
 #include "logs.h"
-#include "rtc.h"
 #include "operate.h"
 
+#include <stdio.h>
+#include <stdbool.h>
+
 //** MACROS **//
-#define MAX_TIRE_CAPACITY = 15
+#define MAX_TIRE_CAPACITY 15
 
 //** CONSTANTS **//
 
@@ -35,8 +36,8 @@ typedef enum {
     ST_OPERATE_IDLE,
     ST_OPERATE_DRIVING,
     ST_OPERATE_POLE_DETECTED,
-    ST_OPERATE_DEPLOYING_TIRE
-
+    ST_OPERATE_DEPLOYING_TIRE,
+    ST_OPERATE_RETURN
 } Status;
 
 typedef enum {
@@ -46,24 +47,9 @@ typedef enum {
             SC_ABOUT,
             SC_LOGS_MENU,
             SC_LOGS_VIEW,
-            SC_LOAD_TIRES
+            SC_LOAD_TIRES,
+            SC_OPERATING
 } Screen;
-
-// Number to String Arrays
-static const char * months[] = {"Jan. ",
-                                "Feb. ",
-                                "March",
-                                "April",
-                                "May  ",
-                                "June ",
-                                "July ",
-                                "Aug. ",
-                                "Sept.",
-                                "Oct. ",
-                                "Nov. ",
-                                "Dec. "};
-
-static const char * dateSuffix[] = {"th", "st", "nd", "rd"};
 
 //** VARIABLES **//
 
@@ -103,9 +89,13 @@ void main(void) {
     initialize();
     
     // Initialize other variables
-    unsigned char loadedTires = 15;
+    // Time Variables
     unsigned short tick = 0;
-
+    unsigned char time[7];
+    
+    // Operation Variables
+    unsigned char loadedTires = 15;
+    
     // Main Loop
     while (1) {
         
@@ -122,7 +112,8 @@ void main(void) {
                     key_was_pressed = false;
                 }
                 
-                displayTime();
+                readTime(time);
+                displayTime(time);
                 
                 break;
 
@@ -186,6 +177,7 @@ void main(void) {
                             
                         case 'C':
                             setStatus(ST_OPERATE_START);
+                            CURRENT_OPERATION.tiresRemaining = loadedTires;
                             loadedTires = MAX_TIRE_CAPACITY;
                             break;
 
@@ -213,10 +205,9 @@ void main(void) {
                         default:
                             break;
                     }
-
+ 
                     key_was_pressed = false;
                 }
-
                 switch (getStatus()) {
                     case ST_OPERATE_START:
                         setStatus(ST_OPERATE_DRIVING);
@@ -224,13 +215,23 @@ void main(void) {
                         break;
 
                     case ST_OPERATE_DRIVING:
-                        if (readSensor() < 10) {
-                            setStatus(ST_OPERATE_POLE_DETECTED);
+                        // Return to the start line if reached max distance or found max number of poles
+                        if ((CURRENT_OPERATION.position >= 400) || CURRENT_OPERATION.totalNumberOfPoles >= 10) {
+                            setStatus(ST_OPERATE_RETURN);
                         }
-                        if (tick == 0) {
 
+                        if (CURRENT_OPERATION.position - CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] > SAME_POLE_REGION) {
+                            if (readSensor() < POLE_DETECTED_RANGE) {
+                                setStatus(ST_OPERATE_POLE_DETECTED);
+                            }
+                        }
+                        if (tick % 100 == 0) {
+                            CURRENT_OPERATION.position++;
                         }
                         break;
+
+                    case ST_OPERATE_RETURN:
+                        if (CURRENT_OPERATION.position )
 
                     default:
                         break;
@@ -302,7 +303,6 @@ void setStatus(Status newStatus) {
 
         case ST_OPERATE_START:
             CURRENT_OPERATION = EmptyOperation;
-
             break;
 
         case ST_OPERATE_DRIVING:
@@ -310,6 +310,9 @@ void setStatus(Status newStatus) {
             break;
 
         case ST_OPERATE_POLE_DETECTED:
+            CURRENT_OPERATION.totalNumberOfPoles++;
+            CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.position;
+            CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = 0;
 
             break;
 
@@ -337,9 +340,9 @@ void setScreen(Screen newScreen) {
     switch (newScreen) {
         case SC_STANDBY:
             displayPage("   Skybot Inc   ",
-                        {},
-                        {},
-                        {});
+                        "",
+                        "",
+                        "");
             break;
             
         case SC_MENU:
@@ -371,7 +374,10 @@ void setScreen(Screen newScreen) {
             break;
 
         default:
+            return;
             break;
+
+        CURRENT_SCREEN = newScreen;
     }
 }
 
@@ -380,7 +386,7 @@ void refreshScreen(void) {
 }
 
 // Interrupt Functions
-void interrupt interruptHandler(void){
+void __interrupt() interruptHandler(void){
 // Handles interrupts received from RB0 (emergency stop) and RB1 (keypad)
     if (INT1IE && INT1IF) {
         // Set a flag to handle interrupt and clear interrupt flag bit

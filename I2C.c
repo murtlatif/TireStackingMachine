@@ -84,3 +84,60 @@ unsigned char I2C_Master_Read(unsigned char ackBit){
 
     return receivedByte;
 }
+
+void readTime(unsigned char pTime[]) {
+    // Reset RTC memory pointer
+    I2C_Master_Start(); // Start condition
+    I2C_Master_Write(0b11010000); // 7 bit RTC address + Write
+    I2C_Master_Write(0x00); // Set memory pointer to seconds    
+    I2C_Master_Stop(); // Stop condition
+
+    // Read current time
+    I2C_Master_Start(); // Start condition
+    I2C_Master_Write(0b11010001); // 7 bit RTC address + Read
+    for(unsigned char i = 0; i < 6; i++){
+        pTime[i] = I2C_Master_Read(ACK); // Read with ACK to continue reading
+    }
+    pTime[6] = I2C_Master_Read(NACK); // Final Read with NACK
+    I2C_Master_Stop(); // Stop condition
+}
+
+void condensedReadTime(unsigned char pTime[]) {
+    // Excludes year and weekday
+    /* pTime[i]:
+     * seconds = 0
+     * minutes
+     * hours
+     * day of month
+     * month
+     */
+    
+    // Reset RTC memory pointer
+    I2C_Master_Start(); // Start condition
+    I2C_Master_Write(0b11010000); // 7 bit RTC address + Write
+    I2C_Master_Write(0x00); // Set memory pointer to seconds    
+    I2C_Master_Stop(); // Stop condition
+    
+    // Read current time
+    I2C_Master_Start(); // Start condition
+    I2C_Master_Write(0b11010001); // 7 bit RTC address + Read
+    for(unsigned char i = 0; i < 5; i++){
+        pTime[i] = I2C_Master_Read(ACK); // Read with ACK to continue reading
+    }
+    pTime[4] = I2C_Master_Read(NACK); // Final Read with NACK
+    I2C_Master_Stop(); // Stop condition
+}
+
+/** @brief Writes the timeToInitialize array to the RTC memory */
+void rtcSetTime(char timeToInitialize[]) {
+    I2C_Master_Start(); // Start condition
+    I2C_Master_Write(0b11010000); //7 bit RTC address + Write
+    I2C_Master_Write(0x00); // Set memory pointer to seconds
+    
+    // Write array
+    for(char i=0; i < 7; i++){
+        I2C_Master_Write(timeToInitialize[i]);
+    }
+    
+    I2C_Master_Stop(); //Stop condition
+}
