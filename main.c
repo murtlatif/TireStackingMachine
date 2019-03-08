@@ -101,6 +101,9 @@ void main(void) {
     // Initialize other variables
 
     // Time Variables
+    unsigned short drivingTick = 0;
+    unsigned short durationTick = 0;
+    unsigned short stepperTick = 0;
     unsigned short tick = 0;
     unsigned char counter = 0;
     unsigned char time[7];
@@ -108,6 +111,7 @@ void main(void) {
     // Operation Variables
     unsigned char loadedTires = 15;
     unsigned char step = 0;
+    unsigned short stepsRemaining = 0;
     
     // Main Loop
     while (1) {
@@ -282,6 +286,13 @@ void main(void) {
             case SC_OPERATING:
                 if (key_was_pressed) {
                     switch (key) {
+                        case '1':
+                            CURRENT_OPERATION.totalNumberOfPoles++;
+                            CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.position;
+                            CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1] = getNumberOfTiresOnPole();
+                            setStatus(ST_OPERATE_POLE_DETECTED);
+                            break;
+                            
                         case 'D':
                             setStatus(ST_COMPLETED_OP);
                             break;
@@ -295,8 +306,11 @@ void main(void) {
                 
                 switch (getStatus()) {
                     case ST_OPERATE_START:
+                        durationTick = 0;
+                        drivingTick = 0;
+                        stepperTick = 0;
                         setStatus(ST_OPERATE_DRIVING);
-                        tick = 0;
+                        
                         break;
 
                     case ST_OPERATE_DRIVING:
@@ -304,31 +318,36 @@ void main(void) {
                         if ((CURRENT_OPERATION.position >= 400) || CURRENT_OPERATION.totalNumberOfPoles >= 10) {
                             setStatus(ST_OPERATE_RETURN);
                         } else if (CURRENT_OPERATION.position - CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] > SAME_POLE_REGION) {
-                            if (readSensor() < POLE_DETECTED_RANGE) {
-                                CURRENT_OPERATION.totalNumberOfPoles++;
-                                CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.position;
-                                CURRENT_OPERATION.tiresOnPoleAfterOperation = getNumberOfTiresOnPole();
-                                setStatus(ST_OPERATE_POLE_DETECTED);
-                            }
+//                            if (readSensor() < POLE_DETECTED_RANGE) {
+//                                CURRENT_OPERATION.totalNumberOfPoles++;
+//                                CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.position;
+//                                CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1] = getNumberOfTiresOnPole();
+//                                setStatus(ST_OPERATE_POLE_DETECTED);
+//                            }
                         }
 
-                        if (tick % 100 == 0) {
+                        if (drivingTick == 100) {
                             CURRENT_OPERATION.position++;
+                            drivingTick = 0;
                         }
                         break;
 
                     case ST_OPERATE_POLE_DETECTED:
+                    CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1] = getNumberOfTiresOnPole();
                     // Deploy tire if tire required on pole
-                        if (getNumberOfTiresRequiredForPole() > CURRENT_OPERATION.tiresOnPoleAfterOperation) {
+                        if (getNumberOfTiresRequiredForPole() > CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1]) {
                             if (CURRENT_OPERATION.tiresRemaining == 0) {
                                 setStatus(ST_OPERATE_RETURN);
                             } else {
+                                stepperTick = 0;
+                                stepsRemaining = STEPS_FOR_ONE_REVOLUTION;
                                 setStatus(ST_OPERATE_DEPLOYING_TIRE);
                             }
                         } else {
                         // Continue driving if no more tires required
                             if (CURRENT_OPERATION.totalNumberOfPoles == 10) {
                                 // Drive back to start if this pole was the 10th pole
+                                drivingTick = 100 - drivingTick;
                                 setStatus(ST_OPERATE_RETURN);
                             } else {
                                 setStatus(ST_OPERATE_DRIVING);
@@ -337,16 +356,47 @@ void main(void) {
                         break;
 
                     case ST_OPERATE_DEPLOYING_TIRE:
+                        // Step stepper every 2 ms
+                        if (stepperTick == 2000) {
+                            stepStepper(CLOCKWISE, &step);
+                            stepsRemaining--;
+                            stepperTick = 0;
 
+                            if (stepsRemaining == 0) {
+                                CURRENT_OPERATION.totalSuppliedTires++;
+                                CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1]++;
+                                CURRENT_OPERATION.tiresRemaining--;
+                                setStatus(ST_OPERATE_POLE_DETECTED);
+                            }
+                        }
                         break;
 
                     case ST_OPERATE_RETURN:
-                        if (CURRENT_OPERATION.position )
+                        if (CURRENT_OPERATION.position == 0) {
+                            setStatus(ST_COMPLETED_OP);
+                        } else if (drivingTick == 100) {
+                            CURRENT_OPERATION.position--;
+                            drivingTick = 0;
+                        }
 
                     default:
                         break;
                 }
 
+                durationTick++;
+                drivingTick++;
+                
+                if (durationTick % 100 == 0) {
+                    refreshScreen();
+                }
+                
+                if (durationTick == 1000) {
+                    durationTick = 0;
+                    CURRENT_OPERATION.duration++;
+                }
+                
+
+                
                 break;
                 
             //=============STATUS: COMPLETED=============
@@ -391,7 +441,7 @@ void main(void) {
                             break;
 
                         case '#':
-                            if (page < (CURRENT_OPERATION.totalNumberOfPoles + 2)) {
+                            if (page < (CURRENT_OPERATION.totalNumberOfPoles + 1)) {
                                 page++;
                                 refreshScreen();
                             }
@@ -408,8 +458,9 @@ void main(void) {
 
             //===========================================
             case SC_SAVE:
-                /* [C] Save
-                 * [D] Don't Save
+                /* [B] Save
+                 * [C] Don't Save
+                 * [D] Back
                  */
                 if (key_was_pressed) {
                     switch (key) {
@@ -465,8 +516,8 @@ void main(void) {
                             if (getLogSlot(page * 3) == USED) {
                                 setScreen(SC_OVERWRITE_LOG_VERIFICATION_1);
                             } else {
-                                storeCondensedOperation();
-                                saveCondensedOperationIntoLogs(page * 3);
+                                storeCondensedOperation(CURRENT_OPERATION);
+                                saveCondensedOperationIntoLogs(page * 3, CURRENT_OPERATION);
                                 CURRENT_OPERATION.savedSlot = (page * 3) + 1;
                                 setScreen(SC_SAVE_COMPLETED);
                             }
@@ -476,8 +527,8 @@ void main(void) {
                             if (getLogSlot((page * 3) + 1) == USED) {
                                 setScreen(SC_OVERWRITE_LOG_VERIFICATION_2);
                             } else {
-                                storeCondensedOperation();
-                                saveCondensedOperationIntoLogs((page * 3) + 1);
+                                storeCondensedOperation(CURRENT_OPERATION);
+                                saveCondensedOperationIntoLogs((page * 3) + 1, CURRENT_OPERATION);
                                 CURRENT_OPERATION.savedSlot = (page * 3) + 2;
                                 setScreen(SC_SAVE_COMPLETED);
                             }
@@ -487,8 +538,8 @@ void main(void) {
                             if (getLogSlot((page * 3) + 2) == USED) {
                                 setScreen(SC_OVERWRITE_LOG_VERIFICATION_3);
                             } else {
-                                storeCondensedOperation();
-                                saveCondensedOperationIntoLogs((page * 3) + 2);
+                                storeCondensedOperation(CURRENT_OPERATION);
+                                saveCondensedOperationIntoLogs((page * 3) + 2, CURRENT_OPERATION);
                                 CURRENT_OPERATION.savedSlot = (page * 3) + 3;
                                 setScreen(SC_SAVE_COMPLETED);
                             }
@@ -515,8 +566,8 @@ void main(void) {
                             break;
 
                         case 'D':
-                            storeCondensedOperation();
-                            saveCondensedOperationIntoLogs(page * 3);
+                            storeCondensedOperation(CURRENT_OPERATION);
+                            saveCondensedOperationIntoLogs(page * 3, CURRENT_OPERATION);
                             CURRENT_OPERATION.savedSlot = (page * 3) + 1;
                             setScreen(SC_SAVE_COMPLETED);
                             break;
@@ -541,8 +592,8 @@ void main(void) {
                             break;
 
                         case 'D':
-                            storeCondensedOperation();
-                            saveCondensedOperationIntoLogs((page * 3) + 1);
+                            storeCondensedOperation(CURRENT_OPERATION);
+                            saveCondensedOperationIntoLogs((page * 3) + 1, CURRENT_OPERATION);
                             CURRENT_OPERATION.savedSlot = (page * 3) + 2;
                             setScreen(SC_SAVE_COMPLETED);
                             break;
@@ -567,8 +618,8 @@ void main(void) {
                             break;
 
                         case 'D':
-                            storeCondensedOperation();
-                            saveCondensedOperationIntoLogs((page * 3) + 2);
+                            storeCondensedOperation(CURRENT_OPERATION);
+                            saveCondensedOperationIntoLogs((page * 3) + 2, CURRENT_OPERATION);
                             CURRENT_OPERATION.savedSlot = (page * 3) + 3;
                             setScreen(SC_SAVE_COMPLETED);
                             break;
@@ -609,7 +660,11 @@ void main(void) {
         // 1ms delay for every iteration
         __delay_ms(1);
         tick++;
+        durationTick++;
         
+        if (durationTick == 1000) {
+            durationTick = 0;
+        }
         if (tick == 1000) {
             // This occurs every second
             tick = 0;
@@ -625,7 +680,7 @@ void initialize(void) {
     // RD4-RD7 are character LCD data lines
     TRISCbits.TRISC0 = 0;
     TRISCbits.TRISC1 = 0;
-    LATCbits.LATC0 = 0
+    LATCbits.LATC0 = 0;
     LATCbits.LATC1 = 0;
     
     TRISD = 0x00;
@@ -684,6 +739,18 @@ void setStatus(Status newStatus) {
         case ST_OPERATE_START:
         // Status used to begin an operation
             CURRENT_OPERATION = EmptyOperation;
+
+            // Initialize operation stats
+            unsigned char condensedTime[5];
+            condensedReadTime(condensedTime);
+            for (char i = 0; i < 5; i++) {
+                CURRENT_OPERATION.startTime[i] = condensedTime[i];
+            }
+            CURRENT_OPERATION.duration = 0;
+            CURRENT_OPERATION.position = 0;
+            CURRENT_OPERATION.totalNumberOfPoles = 0;
+            CURRENT_OPERATION.totalSuppliedTires = 0;
+
             setScreen(SC_OPERATING);
             break;
 
@@ -754,7 +821,7 @@ void setScreen(Screen newScreen) {
             displayPage("Autonomous tire ",
                         "stacking robot  ",
                         "by Skybot Inc.  ",
-                        "[A] Back        ");
+                        "[D] Back        ");
             break;
             
         case SC_LOGS_MENU:
@@ -783,10 +850,50 @@ void setScreen(Screen newScreen) {
 
         case SC_OPERATING:
         // Screen that displays while the robot is operating
-            displayPage("Operating...    ",
+            displayPage("                ",
                         "                ",
                         "                ",
                         "[D] EMRGNCY STOP");
+
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+            switch (getStatus()) {
+                case ST_OPERATE_START:
+                    printf(" Starting op... ");
+                    break;
+
+                case ST_OPERATE_DRIVING:
+                    printf("    DRIVING     ");
+                    lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                    printf("Position:    %03d", CURRENT_OPERATION.position);
+                    lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                    printf("Poles found:  %02d", CURRENT_OPERATION.totalNumberOfPoles);
+                    break;
+
+                case ST_OPERATE_POLE_DETECTED:
+                    printf(" POLE DETECTED  ");
+                    lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                    printf("Tires Found:  %02d", CURRENT_OPERATION.tiresOnPoleAfterOperation);
+                    lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                    printf("Tires Stacked: %01d", CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1]);
+                    break;
+
+                case ST_OPERATE_DEPLOYING_TIRE:
+                    printf(" DEPLOYING TIRE ");
+                    lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                    printf("Tire Ammo:    %02d", CURRENT_OPERATION.tiresRemaining);
+                    lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                    printf("Tires Stacked: %01d", CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles]);
+                    break;
+                    
+                case ST_OPERATE_RETURN:
+                    printf("    RETURNING   ");
+                    lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                    printf("Position:    %03d", CURRENT_OPERATION.position);
+                    break;
+                    
+                default:
+                    break;
+            }
             break;
 
         case SC_TERMINATED:
@@ -802,15 +909,15 @@ void setScreen(Screen newScreen) {
             displayMenuPage("                ",
                             "                ",
                             "                ",
-                            page > 0, page < (CURRENT_OPERATION.totalNumberOfPoles + 2));
+                            page > 0, page < (CURRENT_OPERATION.totalNumberOfPoles + 1));
 
             if (page == 0) {
                 lcd_set_ddram_addr(LCD_LINE1_ADDR);
-                printf("Day: %s %02X/19", months[CURRENT_OPERATION.startTime[4]], CURRENT_OPERATION.startTime[3])
+                printf("Day: %s %02X/19", months[CURRENT_OPERATION.startTime[4]], CURRENT_OPERATION.startTime[3]);
                 lcd_set_ddram_addr(LCD_LINE2_ADDR);
                 printf("Time:   %02X:%02X:%02X", CURRENT_OPERATION.startTime[2], CURRENT_OPERATION.startTime[1], CURRENT_OPERATION.startTime[0]);
                 lcd_set_ddram_addr(LCD_LINE3_ADDR);
-                printf("Duration:  %02d:%02d", duration/60, duration % 60);
+                printf("Duration:  %02d:%02d", CURRENT_OPERATION.duration / 60, CURRENT_OPERATION.duration % 60);
 
             } else if (page == 1) {
                 lcd_set_ddram_addr(LCD_LINE1_ADDR);
@@ -818,7 +925,7 @@ void setScreen(Screen newScreen) {
                 lcd_set_ddram_addr(LCD_LINE2_ADDR);
                 printf("Total Tires:  %02d", CURRENT_OPERATION.totalSuppliedTires);
 
-            } else if (page > 1 && page < CURRENT_OPERATION.totalNumberOfPoles + 2);
+            } else if (page > 1 && page < CURRENT_OPERATION.totalNumberOfPoles + 2) {
                 lcd_set_ddram_addr(LCD_LINE1_ADDR);
                 printf("Pole #dd  %03d cm", CURRENT_OPERATION.distanceOfPole[page - 2]);
                 lcd_set_ddram_addr(LCD_LINE2_ADDR);
@@ -831,9 +938,9 @@ void setScreen(Screen newScreen) {
         case SC_SAVE:
         // Ask user if they would like to save operation or continue without saving
             displayPage("Save operation? ",
-                        "                ",
-                        "[C] Save        ",
-                        "[D] Don't Save  ");
+                        "[B] Save            ",
+                        "[C] Don't Save      ",
+                        "[D] Back            ");
             break;
 
         case SC_SELECT_SAVE_SLOT:

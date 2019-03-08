@@ -112,20 +112,15 @@ void condensedReadTime(unsigned char pTime[]) {
      * month
      */
     
-    // Reset RTC memory pointer
-    I2C_Master_Start(); // Start condition
-    I2C_Master_Write(0b11010000); // 7 bit RTC address + Write
-    I2C_Master_Write(0x00); // Set memory pointer to seconds    
-    I2C_Master_Stop(); // Stop condition
+    unsigned char tempTime[7];
+    readTime(tempTime);
     
-    // Read current time
-    I2C_Master_Start(); // Start condition
-    I2C_Master_Write(0b11010001); // 7 bit RTC address + Read
-    for(unsigned char i = 0; i < 5; i++){
-        pTime[i] = I2C_Master_Read(ACK); // Read with ACK to continue reading
+    for(char i = 0; i < 3; i++) {
+        pTime[i] = tempTime[i];
     }
-    pTime[4] = I2C_Master_Read(NACK); // Final Read with NACK
-    I2C_Master_Stop(); // Stop condition
+    
+    pTime[3] = tempTime[4];
+    pTime[4] = tempTime[5];
 }
 
 /** @brief Writes the timeToInitialize array to the RTC memory */

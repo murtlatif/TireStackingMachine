@@ -9,11 +9,12 @@
 /********************************** Macros ***********************************/
 #define POLE_DETECTED_RANGE 10
 #define SAME_POLE_REGION 10
+#define STEPS_FOR_ONE_REVOLUTION 2048
 
-#define STEPPER_IN1 LATA
-#define STEPPER_IN2
-#define STEPPER_IN3
-#define STEPPER_IN4
+#define STEPPER_IN1 LATAbits.LATA2
+#define STEPPER_IN2 LATAbits.LATA3
+#define STEPPER_IN3 LATAbits.LATA4
+#define STEPPER_IN4 LATAbits.LATA5
 /******************************** Constants **********************************/
 
 
@@ -29,7 +30,7 @@ typedef enum {
     MOTOR1 = 0,
     MOTOR2,
     STEPPER
-} motor
+} motor;
 
 /******************************   Variables **********************************/
 
@@ -37,7 +38,7 @@ typedef enum {
 /************************ Public Function Prototypes *************************/
 void driveDCMotor(motor desiredMotor, motor_setting motorSetting);
 
-void stepStepper(void);
+void stepStepper(motor_setting motorSetting, unsigned char *step);
 
 unsigned char getNumberOfTiresOnPole(void);
 

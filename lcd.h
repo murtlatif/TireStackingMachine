@@ -79,7 +79,8 @@ extern const unsigned char LCD_LINE3_ADDR; /**< Address of 3rd line   */
 extern const unsigned char LCD_LINE4_ADDR; /**< Address of 4th line   */
 
 // Number to String Arrays
-const char * months[] = {"Jan. ",
+const char * months[] = {"ERR. ",
+                         "Jan. ",
                          "Feb. ",
                          "March",
                          "April",

@@ -52,11 +52,62 @@ void driveDCMotor(motor desiredMotor, motor_setting motorSetting) {
                 LATAbits.LATA0 = forwardInput;
                 LATAbits.LATA1 = backwardInput;
                 break;
+                
+            default:
+                break;
         }
     }
 }
 
-void stepStepper(motor_setting motorSetting, unsigned char step) {
+void stepStepper(motor_setting motorSetting, unsigned char *step) {
+    unsigned char step1 = 0;
+    unsigned char step2 = 0;
+    unsigned char step3 = 0;
+    unsigned char step4 = 0;
+    
+    switch (motorSetting) {
+        case CLOCKWISE:
+            if ((*step) == 3) {
+                (*step) = 0;
+            } else {
+                (*step) += 1;
+            }
+            break;
+            
+        case COUNTER_CLOCKWISE:
+            if ((*step) == 0) {
+                (*step) = 3;
+            } else {
+                (*step) -= 1;
+            }
+            
+        default:
+            return;
+            break;
+    }
+    
+    switch (*step) {
+        case 0:
+            step1 = 1;
+            break;
+            
+        case 1:
+            step2 = 1;
+            break;
+            
+        case 2:
+            step3 = 1;
+            break;
+            
+        case 3:
+            step4 = 1;
+            break;
+    }
+    
+    STEPPER_IN1 = step1;
+    STEPPER_IN2 = step2;
+    STEPPER_IN3 = step3;
+    STEPPER_IN4 = step4;
     
 }
 

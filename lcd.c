@@ -143,7 +143,7 @@ void displayTime(unsigned char time[]) {
     }
     
     lcd_set_ddram_addr(LCD_LINE2_ADDR);
-    printf("%s ", months[time[5] - 1]);     // Month
+    printf("%s ", months[time[5]]);     // Month
     printf("%02X", time[4]);                // Date
     if ((time[4] & 0x0F) <= 3) {              // Date Suffix
         printf("%s", dateSuffix[(time[4] & 0x0F)]);
@@ -161,9 +161,16 @@ void displayTime(unsigned char time[]) {
         } else {
             hour = (((time[2] >> 4) - 1) << 4) | ((time[2] & 0xF) - 0x2);
         }
+    } else {
+        hour = time[2];
     }
-    printf("%02X %02X:",time[2], hour);            // Hour
+    
+    if (time[2] == 0x00) {
+        printf("   12:");                           // Hour (for 12 AM);
+    } else {
+        printf("   %02X:",time[2], hour);            // Hour
+    }
     printf("%02X:", time[1]);                       // Minute
     printf("%02X ", time[0]);                       // Second
-    printf("%s  ", time[2] > 0x12 ? "PM" : "AM");   // AM/PM
+    printf("%s  ", time[2] >= 0x12 ? "PM" : "AM");   // AM/PM
 }
