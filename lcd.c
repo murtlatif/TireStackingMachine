@@ -18,6 +18,22 @@ const unsigned char LCD_LINE2_ADDR = 64;
 const unsigned char LCD_LINE3_ADDR = 16;
 const unsigned char LCD_LINE4_ADDR = 80;
 
+// Number to String Arrays
+const char * months[] = {"ERR. ",
+                         "Jan. ",
+                         "Feb. ",
+                         "March",
+                         "April",
+                         "May  ",
+                         "June ",
+                         "July ",
+                         "Aug. ",
+                         "Sept.",
+                         "Oct. ",
+                         "Nov. ",
+                         "Dec. "};
+
+static const char * dateSuffix[] = {"th", "st", "nd", "rd"};
 /***************************** Private Functions *****************************/
 /**
  * @brief Pulses the LCD register enable signal, which causes the LCD to latch
@@ -156,10 +172,10 @@ void displayTime(unsigned char time[]) {
     unsigned char hour;
     // Getting the hour into 12 hour time
     if (time[2] > 0x12) {
-        if ((time[2] & 0xF) < 2) {
+        if ((time[2] & 0xF) < 0x2) {
             hour = (((time[2] >> 4) - 2) << 4) | 0xA - (2 - ((time[2] & 0xF)));
         } else {
-            hour = (((time[2] >> 4) - 1) << 4) | ((time[2] & 0xF) - 0x2);
+            hour = (((time[2] >> 4) - 0x1) << 4) | ((time[2] & 0xF) - 0x2);
         }
     } else {
         hour = time[2];
@@ -168,7 +184,7 @@ void displayTime(unsigned char time[]) {
     if (time[2] == 0x00) {
         printf("   12:");                           // Hour (for 12 AM);
     } else {
-        printf("   %02X:",time[2], hour);            // Hour
+        printf("   %02X:", hour);            // Hour
     }
     printf("%02X:", time[1]);                       // Minute
     printf("%02X ", time[0]);                       // Second

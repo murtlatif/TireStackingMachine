@@ -59,34 +59,13 @@ void driveDCMotor(motor desiredMotor, motor_setting motorSetting) {
     }
 }
 
-void stepStepper(motor_setting motorSetting, unsigned char *step) {
+void stepStepper(unsigned char step) {
     unsigned char step1 = 0;
     unsigned char step2 = 0;
     unsigned char step3 = 0;
     unsigned char step4 = 0;
     
-    switch (motorSetting) {
-        case CLOCKWISE:
-            if ((*step) == 3) {
-                (*step) = 0;
-            } else {
-                (*step) += 1;
-            }
-            break;
-            
-        case COUNTER_CLOCKWISE:
-            if ((*step) == 0) {
-                (*step) = 3;
-            } else {
-                (*step) -= 1;
-            }
-            
-        default:
-            return;
-            break;
-    }
-    
-    switch (*step) {
+    switch (step) {
         case 0:
             step1 = 1;
             break;
@@ -102,6 +81,9 @@ void stepStepper(motor_setting motorSetting, unsigned char *step) {
         case 3:
             step4 = 1;
             break;
+            
+        default:
+            break;
     }
     
     STEPPER_IN1 = step1;
@@ -115,7 +97,15 @@ unsigned char getNumberOfTiresOnPole(void) {
     return 0;
 }
 
-unsigned char getNumberOfTiresRequiredForPole(void) {
+unsigned char getNumberOfTiresRequiredForPole(Operation op) {
+    if (op.totalNumberOfPoles == 1) {
+        return 2;
+    }
+
+    if ((op.distanceOfPole[op.totalNumberOfPoles - 1] - op.distanceOfPole[op.totalNumberOfPoles - 2]) < 30) {
+        return 1;
+    } 
+    
     return 2;
 }
 

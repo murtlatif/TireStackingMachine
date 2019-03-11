@@ -21,9 +21,10 @@ static inline unsigned char EEPROM_ReadByte(unsigned char eepromAdr) {
     return EEDATA;          // Return data stored in EEDATA.
 }
 
-static inline unsigned char EEPROM_WriteByte(unsigned char eepromAdr, unsigned char eepromData) {
+static inline unsigned char EEPROM_WriteByte(unsigned short eepromAdr, unsigned char eepromData) {
     while (EECON1bits.RD || EECON1bits.WR) { continue; }    // Wait until ready
-    EEADR = eepromAdr;      // Set desired address
+    EEADR = eepromAdr & 0x00FF; // Set low address value (00h - FFh)
+    EEADRH = (eepromAdr >> 8);  // Set high address value (0h - 3h) upper 6 bits ignored
     EEDATA = eepromData;    // Set desired data
     EECON1bits.EEPGD = 0;   // Configure to EEPROM memory
     EECON1bits.CFGS = 0;    // Configure to EEPROM memory
@@ -199,11 +200,14 @@ void unpackCondensedOperation(Operation op) {
 }
 
 unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation op) {
+
     if (slotNumber >= MAX_LOGS) {
         return FAIL;
     }
     
     unsigned char result;
+    storeCondensedOperation(op);
+
     for (char i = 0; i < 32; i++) {
         result = EEPROM_WriteByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG + i, op.condensedOperation[i]);
         if (result == FAIL) {

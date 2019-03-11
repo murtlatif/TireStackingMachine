@@ -5,14 +5,15 @@
 /********************************* Includes **********************************/
 #include <xc.h>
 #include "configureBits.h"
-
+#include "logs.h"
 /********************************** Macros ***********************************/
 #define POLE_DETECTED_RANGE 10
 #define SAME_POLE_REGION 10
 #define STEPS_FOR_ONE_REVOLUTION 2048
+#define SENSOR_VERIFICATION_TRIES 3
 
-#define STEPPER_IN1 LATAbits.LATA2
-#define STEPPER_IN2 LATAbits.LATA3
+#define STEPPER_IN1 LATEbits.LATE0
+#define STEPPER_IN2 LATEbits.LATE1
 #define STEPPER_IN3 LATAbits.LATA4
 #define STEPPER_IN4 LATAbits.LATA5
 /******************************** Constants **********************************/
@@ -38,11 +39,11 @@ typedef enum {
 /************************ Public Function Prototypes *************************/
 void driveDCMotor(motor desiredMotor, motor_setting motorSetting);
 
-void stepStepper(motor_setting motorSetting, unsigned char *step);
+void stepStepper(unsigned char step);
 
 unsigned char getNumberOfTiresOnPole(void);
 
-unsigned char getNumberOfTiresRequiredForPole(void);
+unsigned char getNumberOfTiresRequiredForPole(Operation op);
 
 unsigned char readSensor(void);
 
