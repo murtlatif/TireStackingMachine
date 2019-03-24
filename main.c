@@ -21,7 +21,7 @@
 
 //** MACROS **//
 #define MAX_TIRE_CAPACITY 15
-
+#define MOTOR_ERROR_PROPORTIONALITY_CONSTANT 1
 //** CONSTANTS **//
 
 // Constant values
@@ -80,14 +80,15 @@ volatile unsigned char key;
 
 // RTC Variables
 char valueToWriteToRTC[7] = {
-    0x30, // Seconds 
-    0x47, // Minutes
-    0x19, // Hours (set to 24 hour mode)
-    0x04, // Weekday
-    0x07, // Day of month
+    0x00, // Seconds 
+    0x10, // Minutes
+    0x17, // Hours (set to 24 hour mode)
+    0x01, // Weekday
+    0x24, // Day of month
     0x03, // Month
     0x19  // Year
 };
+
 
 //** PROTOTYPES **//
 
@@ -107,6 +108,7 @@ void main(void) {
 
     // Time Variables
     unsigned short drivingTick = 0;
+    unsigned char pwmTick = 0;
     unsigned short durationTick = 0;
     unsigned char stepperTick = 0;
     unsigned short tick = 0;
@@ -118,6 +120,13 @@ void main(void) {
     unsigned char step = 0;
     unsigned short stepsRemaining = 0;
     bool pole_found = false;
+    unsigned char spinning = 0;
+    unsigned char slaveMotorSpeed = 0;
+    unsigned char masterMotorSpeed = 0;
+    unsigned char onDuty = 0;
+    unsigned char pwmDrive = 0x0;
+    unsigned char sensorReading = 0;
+
     // Main Loop
     while (1) {
         
@@ -272,15 +281,15 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'A':
-                            driveDCMotor(MOTOR1, CLOCKWISE);
+                            driveDCMotor(BOTH, CLOCKWISE);
                             break;
 
                         case 'B':
-                            driveDCMotor(MOTOR1, COUNTER_CLOCKWISE);
+                            driveDCMotor(BOTH, COUNTER_CLOCKWISE);
                             break;
 
                         case 'C':
-                            driveDCMotor(MOTOR1, OFF);
+                            driveDCMotor(BOTH, OFF);
                             break;
 
                         case 'D':
@@ -291,12 +300,87 @@ void main(void) {
                             setScreen(SC_DEBUG_STEPPER);
                             break;
                             
+                        case '2':
+                            if (onDuty > 0) {
+                                onDuty--;
+                            }
+                            lcd_home();
+                            printf("On Duty:     %03d", onDuty);
+                            break;
+                            
+                        case '3':
+                            if (onDuty < 100) {
+                                onDuty++;
+                            }
+                            lcd_home();
+                            printf("On Duty:     %03d", onDuty);
+                            break;
+                            
+                        case '4':
+                            onDuty = 0;
+                            break;
+                            
+                        case '5':
+                            if (onDuty <= 10) {
+                                onDuty = 0;
+                            } else {
+                                onDuty-= 10;
+                            }
+                            lcd_home();
+                            printf("On Duty:     %03d", onDuty);
+                            break;
+                            
+                        case '6':
+                            if (onDuty >= 90) {
+                                onDuty = 100;
+                            } else {
+                                onDuty += 10;
+                            }
+                            lcd_home();
+                            printf("On Duty:     %03d", onDuty);
+                            break;
+                            
+                        case '7':
+                            onDuty = 50;
+                            break;
+                            
+                        case '0':
+                            pwmDrive = 0;
+                            break;
+                            
+                        case '*':
+                            pwmDrive = 1;
+                            break;
+                            
+                        case '#':
+                            pwmDrive = 2;
+                            break;
+                            
                         default:
                             break;
                     }
 
                     key_was_pressed = false;
                 }
+                
+                if (pwmTick < onDuty) {
+                    MOTOR1_IN1 = (pwmDrive == 1);
+                    MOTOR2_IN1 = (pwmDrive == 1);
+                    MOTOR1_IN2 = (pwmDrive == 2);
+                    MOTOR2_IN2 = (pwmDrive == 2);
+                } else {
+                    MOTOR1_IN1 = 0;
+                    MOTOR1_IN2 = 0;
+                    MOTOR2_IN1 = 0;
+                    MOTOR2_IN2 = 0;
+                }
+                
+                if (pwmTick == 100) {
+                    pwmTick = 0;
+                }
+                
+                pwmTick++;
+                
 
                 break;
                 
@@ -358,28 +442,139 @@ void main(void) {
                             }
                             break;
                             
+                        case '4':
+                            spinning = 0x1;
+                            break;
+                            
+                        case '5':
+                            spinning = 0x2;
+                            break;
+                            
+                        case '6':
+                            spinning = 0x0;
+                            break;
+                            
+                        case '7':
+                            STEPPER_IN1 = 1;
+                            STEPPER_IN3 = 1;
+                            STEPPER_IN2 = 0;
+                            for (char i = 0; i < 200; i ++) {
+                                STEPPER_IN2 = 1;
+                                __delay_ms(1);
+                                STEPPER_IN2 = 0;
+                                __delay_ms(1);
+                            }
+                            break;
+                            
+                        case '8':
+                            STEPPER_IN1 = 0;
+                            STEPPER_IN3 = 1;
+                            STEPPER_IN2 = 0;
+                            for (char i = 0; i < 200; i ++) {
+                                STEPPER_IN2 = 1;
+                                __delay_us(550);
+                                STEPPER_IN2 = 0;
+                                __delay_us(550);
+                            }
+                            break;
+                            
+                        case '9':
+                            STEPPER_IN1 = 0;
+                            STEPPER_IN2 = 0;
+                            STEPPER_IN3 = 0;
+                            STEPPER_IN4 = 0;
+                            break;
+                            
+                        case '*':
+                            STEPPER_IN1 = 1;
+                            STEPPER_IN3 = 1;
+                            STEPPER_IN2 = 0;
+                            for (short i = 0; i < 4000; i ++) {
+                                STEPPER_IN2 = 1;
+                                __delay_us(600);
+                                STEPPER_IN2 = 0;
+                                __delay_us(600);
+                            }
+                            break;
+                            
+                        case '#':
+                            STEPPER_IN1 = 0;
+                            STEPPER_IN3 = 1;
+                            STEPPER_IN2 = 0;
+                            for (short i = 0; i < 4000; i ++) {
+                                STEPPER_IN2 = 1;
+                                __delay_us(600);
+                                STEPPER_IN2 = 0;
+                                __delay_us(600);
+                            }
+                            
                         default:
                             break;
                     }
 
                     key_was_pressed = false;
                 }
+                
+                switch (spinning) {
+                    case 0x1:
+                        if (stepperTick == 2) {
+                            stepStepper(step);
+
+                            if (step == 3) {
+                                step = 0;
+                            } else {
+                                step++;
+                            }
+
+                            stepperTick = 0;
+                            stepsRemaining--;
+                        }
+                        stepperTick++;
+                        
+                        break;
+                        
+                    case 0x2:
+                        if (stepperTick == 2) {
+                            stepStepper(step);
+
+                            if (step == 0) {
+                                step = 3;
+                            } else {
+                                step--;
+                            }
+
+                            stepperTick = 0;
+                            stepsRemaining--;
+                        }
+                        stepperTick++;
+                        break;
+                        
+                    default:
+                        break;
+                        
+                        
+                }
                 break;
                 
             //===========================================
             case SC_DEBUG_SENSOR:
-                /* [A] Read Sensor
-                 * [B]
+                /* Distance:  ###mm
                  * 
+                 * [C] Read Sensor
                  * [D] Back
                  */
                 if (key_was_pressed) {
                     switch (key) {
-                        case 'A':
-                            // readSensor()
-                            break;
-
-                        case 'B':
+                        case 'C':
+                            lcd_home();
+                            printf("Reading distance");
+                            sensorReading = readSensor();
+                            lcd_home();
+                            if (sensorReading) {
+                                printf("Distance:  %03dmm", sensorReading);
+                            } else {
+                                printf("No reading found");
+                            }
                             break;
 
                         case 'D':
@@ -392,7 +587,9 @@ void main(void) {
 
                     key_was_pressed = false;
                 }
+                
                 break;
+
             //===========================================
             case SC_LOGS_MENU:
                 /* [A] View Logs
@@ -574,6 +771,7 @@ void main(void) {
                         // Return to the start line if reached max distance or found max number of poles
                         if ((CURRENT_OPERATION.position >= 400) || CURRENT_OPERATION.totalNumberOfPoles >= 10) {
                             setStatus(ST_OPERATE_RETURN);
+
                         // Give a buffer distance before beginning detecting poles again
                         } else if (CURRENT_OPERATION.position - CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] > SAME_POLE_REGION) {
                             if (pole_found) {
@@ -600,11 +798,23 @@ void main(void) {
                         }
 
                         drivingTick++;
+                        if (drivingTick % 10 == 0) {
+                            // ADJUSTING SPEED TO HAVE STRAIGHT DRIVING
+                            // unsigned char error = getEncoderValue(MOTOR1) - getEncoderValue(MOTOR2);
+                            // use error to set new speed
+                            // speed = error / MOTOR_ERROR_PROPORTIONALITY_CONSTANT;
+
+                            // MEASURING DISTANCE
+                            // CURRENT_OPERATION.position += getEncoderValue(MASTER) * someFloatConstant
+
+                        }
+
                         if (drivingTick == 100) {
                             CURRENT_OPERATION.position++;
                             drivingTick = 0;
                             refreshScreen();
                         }
+                        
                         break;
 
                     case ST_OPERATE_POLE_DETECTED:
@@ -993,24 +1203,28 @@ void main(void) {
 // State functions
 void initialize(void) {
     
-    TRISAbits.TRISA0 = 0;
-    TRISAbits.TRISA1 = 0;
-    TRISEbits.TRISE0 = 0;
-    TRISEbits.TRISE1 = 0;
-    TRISAbits.TRISA4 = 0;
-    TRISAbits.TRISA5 = 0;
-    LATAbits.LATA0 = 0;
-    LATAbits.LATA1 = 0;
-    LATEbits.LATE0 = 0;
-    LATEbits.LATE1 = 0;
-    LATAbits.LATA4 = 0;
-    LATAbits.LATA5 = 0;
-    
+    // C0, C1 = DC Motor 1
     TRISCbits.TRISC0 = 0;
     TRISCbits.TRISC1 = 0;
     LATCbits.LATC0 = 0;
     LATCbits.LATC1 = 0;
-    
+
+    // A0, A1 = DC Motor 2
+    TRISAbits.TRISA0 = 0;
+    TRISAbits.TRISA1 = 0;
+    LATAbits.LATA0 = 0;
+    LATAbits.LATA1 = 0;
+
+    // E0, E1, A4, A5 = Stepper Motor
+    TRISEbits.TRISE0 = 0;
+    TRISEbits.TRISE1 = 0;
+    TRISAbits.TRISA4 = 0;
+    TRISAbits.TRISA5 = 0;
+    LATEbits.LATE0 = 0;
+    LATEbits.LATE1 = 0;
+    LATAbits.LATA4 = 0;
+    LATAbits.LATA5 = 0;
+
     // RD2 is the character LCD RS
     // RD3 is the character LCD enable (E)
     // RD4-RD7 are character LCD data lines
@@ -1029,19 +1243,23 @@ void initialize(void) {
     // Initialize LCD
     initLCD();
     
-    // Initialize I2C Master with 100 kHz clock
-    I2C_Master_Init(100000);
-    
+//    // Initialize I2C Master with 100 kHz clock
+//    // Write the address of the slave device, that is, the Arduino Nano. Note
+//    // that the Arduino Nano must be configured to be running as a slave with
+//    // the same address given here.
+    I2C_Master_Init(100000); 
+//    I2C_Master_Start();
+//    I2C_Master_Write(0b00010000); // 7-bit Arduino slave address + write
+//    I2C_Master_Stop();
+
     // Enable interrupts
     ei();
-    
-    // Set/clear variables
     
     // Initialize Status
     setStatus(ST_STANDBY);
     
     // Write time ( DO NOT UNCOMMENT )
-//    rtcSetTime(valueToWriteToRTC);
+    rtcSetTime(valueToWriteToRTC);
 }
 
 Status getStatus(void) {
@@ -1053,7 +1271,7 @@ void setStatus(Status newStatus) {
 
     // Turn off motors if not driving
     if (newStatus != ST_OPERATE_DRIVING || newStatus != ST_OPERATE_RETURN) {
-        driveDCMotor(MOTOR1, OFF);
+        driveDCMotor(BOTH, OFF);
     }
 
     switch (newStatus) {
@@ -1087,7 +1305,8 @@ void setStatus(Status newStatus) {
 
         case ST_OPERATE_DRIVING:
         // Status used to drive the robot by powering the motors
-            driveDCMotor(MOTOR1, CLOCKWISE);
+            driveDCMotor(BOTH, CLOCKWISE);
+            
             break;
 
         case ST_OPERATE_POLE_DETECTED:
@@ -1101,7 +1320,7 @@ void setStatus(Status newStatus) {
 
         case ST_OPERATE_RETURN:
         // Robot returns back to the start
-            driveDCMotor(MOTOR1, COUNTER_CLOCKWISE);
+            driveDCMotor(BOTH, COUNTER_CLOCKWISE);
             break;
 
         case ST_COMPLETED_OP:
@@ -1196,7 +1415,7 @@ void setScreen(Screen newScreen) {
         // Debug menu
             displayPage("[A] Motor Debug ",
                         "[B] Log Debug   ",
-                        "                ",
+                        "[C] Sensor Debug",
                         "[D] Back        ");
             break;
 
@@ -1233,9 +1452,9 @@ void setScreen(Screen newScreen) {
 
         case SC_DEBUG_SENSOR:
         // Sensor debug menu
-            displayPage("[A] Read Sensor ",
-                        "[B]             ",
+            displayPage("                ",
                         "                ",
+                        "[C] Read Sensor ",
                         "[D] Back        ");
             break;
 

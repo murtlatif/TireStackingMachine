@@ -12,6 +12,12 @@
 #define STEPS_FOR_ONE_REVOLUTION 2048
 #define SENSOR_VERIFICATION_TRIES 3
 
+#define MOTOR1_IN1 LATCbits.LATC0
+#define MOTOR1_IN2 LATCbits.LATC1
+
+#define MOTOR2_IN1 LATAbits.LATA0
+#define MOTOR2_IN2 LATAbits.LATA1
+
 #define STEPPER_IN1 LATEbits.LATE0
 #define STEPPER_IN2 LATEbits.LATE1
 #define STEPPER_IN3 LATAbits.LATA4
@@ -30,6 +36,7 @@ typedef enum {
 typedef enum {
     MOTOR1 = 0,
     MOTOR2,
+    BOTH,
     STEPPER
 } motor;
 

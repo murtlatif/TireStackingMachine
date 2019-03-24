@@ -15,7 +15,7 @@
 
 /***************************** Public Functions ******************************/
 void driveDCMotor(motor desiredMotor, motor_setting motorSetting) {
-    if (desiredMotor == MOTOR1 || desiredMotor == MOTOR2) {
+    if (desiredMotor == MOTOR1 || desiredMotor == MOTOR2 || desiredMotor == BOTH) {
         unsigned char forwardInput;
         unsigned char backwardInput;
 
@@ -49,6 +49,13 @@ void driveDCMotor(motor desiredMotor, motor_setting motorSetting) {
                 break;
 
             case MOTOR2:
+                LATAbits.LATA0 = forwardInput;
+                LATAbits.LATA1 = backwardInput;
+                break;
+                
+            case BOTH:
+                LATCbits.LATC0 = forwardInput;
+                LATCbits.LATC1 = backwardInput;
                 LATAbits.LATA0 = forwardInput;
                 LATAbits.LATA1 = backwardInput;
                 break;
@@ -107,8 +114,4 @@ unsigned char getNumberOfTiresRequiredForPole(Operation op) {
     } 
     
     return 2;
-}
-
-unsigned char readSensor(void) {
-    return 0;
 }

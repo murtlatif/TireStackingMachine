@@ -69,6 +69,7 @@ void condensedReadTime(unsigned char pTime[]);
 
 void rtcSetTime(char timeToInitialize[]);
 
+unsigned char readSensor(void);
 /**
  * @}
  */

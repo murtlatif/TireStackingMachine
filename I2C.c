@@ -6,7 +6,7 @@
 
 /********************************* Includes **********************************/
 #include "I2C.h"
-
+#include <stdio.h>
 /***************************** Private Functions *****************************/
 /**
  * @brief Private function used to poll the MSSP module status. This function
@@ -135,4 +135,18 @@ void rtcSetTime(char timeToInitialize[]) {
     }
     
     I2C_Master_Stop(); //Stop condition
+}
+
+unsigned char readSensor(void) {
+    printf("_SA_");
+    I2C_Master_Start();
+    printf("_SB_");
+    I2C_Master_Write(0b00010001); // 7-bit Arduino slave address + Read
+    printf("_SC_");
+    unsigned char data = I2C_Master_Read(NACK); // Read one char only
+    printf("_SD_");
+    I2C_Master_Stop();
+    printf("_SE_");
+    
+    return data;
 }
