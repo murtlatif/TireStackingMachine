@@ -13,8 +13,6 @@
 #include "configureBits.h"
 
 /********************************** Macros ***********************************/
-#define SUCCESS 1
-#define FAIL 0
 
 #define ADDR_LOGSLOTS_LOW 0x00
 #define ADDR_LOGSLOTS_HIGH 0x01

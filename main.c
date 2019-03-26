@@ -15,6 +15,7 @@
 #include "I2C.h"
 #include "logs.h"
 #include "operate.h"
+#include "uart.h"
 
 #include <stdio.h>
 #include <stdbool.h>
@@ -65,6 +66,11 @@ typedef enum {
     SC_MEMORY_ERROR
 } Screen;
 
+typedef enum {
+    MSG_STOP = 0,
+    MSG_START,
+} MSG_CODE;
+
 //** VARIABLES **//
 
 // State variables
@@ -76,6 +82,7 @@ unsigned char page;
 // Interrupt Variables
 volatile bool key_was_pressed = false;
 volatile bool emergency_stop_pressed = false;
+volatile bool receivedMessageFromArduino = false;
 volatile unsigned char key;
 
 // RTC Variables
@@ -363,23 +370,23 @@ void main(void) {
                     key_was_pressed = false;
                 }
                 
-                if (pwmTick < onDuty) {
-                    MOTOR1_IN1 = (pwmDrive == 1);
-                    MOTOR2_IN1 = (pwmDrive == 1);
-                    MOTOR1_IN2 = (pwmDrive == 2);
-                    MOTOR2_IN2 = (pwmDrive == 2);
-                } else {
-                    MOTOR1_IN1 = 0;
-                    MOTOR1_IN2 = 0;
-                    MOTOR2_IN1 = 0;
-                    MOTOR2_IN2 = 0;
-                }
-                
-                if (pwmTick == 100) {
-                    pwmTick = 0;
-                }
-                
-                pwmTick++;
+//                if (pwmTick < onDuty) {
+//                    MOTOR1_IN1 = (pwmDrive == 1);
+//                    MOTOR2_IN1 = (pwmDrive == 1);
+//                    MOTOR1_IN2 = (pwmDrive == 2);
+//                    MOTOR2_IN2 = (pwmDrive == 2);
+//                } else {
+//                    MOTOR1_IN1 = 0;
+//                    MOTOR1_IN2 = 0;
+//                    MOTOR2_IN1 = 0;
+//                    MOTOR2_IN2 = 0;
+//                }
+//                
+//                if (pwmTick == 100) {
+//                    pwmTick = 0;
+//                }
+//                
+//                pwmTick++;
                 
 
                 break;
@@ -568,6 +575,8 @@ void main(void) {
                         case 'C':
                             lcd_home();
                             printf("Reading distance");
+                            lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                            printf("                ");
                             sensorReading = readSensor();
                             lcd_home();
                             if (sensorReading) {
@@ -744,11 +753,16 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case '1':
-                            pole_found = true;
+                            UART_Transmit_Yield(MSG_START);
+                            break;
+
+                        case '2':
+                            UART_Transmit_Yield(MSG_STOP);
                             break;
                             
                         case 'D':
-                            setStatus(ST_COMPLETED_OP);
+                            // setStatus(ST_COMPLETED_OP);
+                            setScreen(SC_MENU);
                             break;
 
                         default:
@@ -757,7 +771,7 @@ void main(void) {
  
                     key_was_pressed = false;
                 }
-                
+                /*
                 switch (getStatus()) {
                     case ST_OPERATE_START:
                         durationTick = 0;
@@ -894,10 +908,10 @@ void main(void) {
                 if (durationTick == 1000) {
                     durationTick = 0;
                     CURRENT_OPERATION.duration++;
-                }
+                }*/
                 
                 break;
-                
+            
             //=============STATUS: COMPLETED=============
             case SC_TERMINATED:
                 /* [B] View Results
@@ -1239,18 +1253,43 @@ void initialize(void) {
     
     // Enable RB0 (emergency stop) interrupt
     INT2IE = 1;
+
+    // Enable RC7 (RX) interrupt
+    RCIE = 1;
     
     // Initialize LCD
     initLCD();
+    
+    // Initialize UART
+    // Configure the baud rate generator for 9600 bits per second
+    long baudRate = 9600;
+    SPBRG = (unsigned char)((_XTAL_FREQ / (64 * baudRate)) - 1);
+    
+    // Configure transmit control register
+    TXSTAbits.TX9 = 0; // Use 8-bit transmission (8 data bits, no parity bit)
+    TXSTAbits.SYNC = 0; // Asynchronous communication
+    TXSTAbits.TXEN = 1; // Enable transmitter
+    __delay_ms(5); // Enabling the transmitter requires a few CPU cycles for stability
+    
+    // Configure receive control register
+    RCSTAbits.RX9 = 0; // Use 8-bit reception (8 data bits, no parity bit)
+    RCSTAbits.CREN = 1; // Enable receiver
+    
+    // Enforce correct pin configuration for relevant TRISCx
+    TRISCbits.TRISC6 = 0; // TX = output
+    TRISCbits.TRISC7 = 1; // RX = input
+   
+    // Enable serial peripheral
+    RCSTAbits.SPEN = 1;
     
 //    // Initialize I2C Master with 100 kHz clock
 //    // Write the address of the slave device, that is, the Arduino Nano. Note
 //    // that the Arduino Nano must be configured to be running as a slave with
 //    // the same address given here.
     I2C_Master_Init(100000); 
-//    I2C_Master_Start();
-//    I2C_Master_Write(0b00010000); // 7-bit Arduino slave address + write
-//    I2C_Master_Stop();
+    I2C_Master_Start();
+    I2C_Master_Write(0b00010000); // 7-bit Arduino slave address + write
+    I2C_Master_Stop();
 
     // Enable interrupts
     ei();
@@ -1259,7 +1298,7 @@ void initialize(void) {
     setStatus(ST_STANDBY);
     
     // Write time ( DO NOT UNCOMMENT )
-    rtcSetTime(valueToWriteToRTC);
+//    rtcSetTime(valueToWriteToRTC);
 }
 
 Status getStatus(void) {
@@ -1656,5 +1695,7 @@ void __interrupt() interruptHandler(void){
     } else if (INT2IE && INT2IF) {
         emergency_stop_pressed = true;
         INT2IF = 0;
+    } else if (RCIE && RCIF) {
+
     }
 }

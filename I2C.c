@@ -6,6 +6,7 @@
 
 /********************************* Includes **********************************/
 #include "I2C.h"
+#include "lcd.h"
 #include <stdio.h>
 /***************************** Private Functions *****************************/
 /**
@@ -138,15 +139,16 @@ void rtcSetTime(char timeToInitialize[]) {
 }
 
 unsigned char readSensor(void) {
-    printf("_SA_");
+    lcd_set_ddram_addr(LCD_LINE2_ADDR);
+    printf("_SA");
     I2C_Master_Start();
-    printf("_SB_");
+    printf("SB");
     I2C_Master_Write(0b00010001); // 7-bit Arduino slave address + Read
-    printf("_SC_");
+    printf("SC");
     unsigned char data = I2C_Master_Read(NACK); // Read one char only
-    printf("_SD_");
+    printf("SD");
     I2C_Master_Stop();
-    printf("_SE_");
+    printf("SE_");
     
     return data;
 }

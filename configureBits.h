@@ -8,6 +8,9 @@
 #ifndef CONFIG_BITS_H
 #define CONFIG_BITS_H
 
+#define SUCCESS 1
+#define FAIL 0
+
 // CONFIG1H
 #pragma config OSC = HSPLL      // Oscillator Selection bits (HS oscillator)
 #pragma config FCMEN = OFF      // Fail-Safe Clock Monitor Enable bit (Fail-Safe Clock Monitor disabled)
