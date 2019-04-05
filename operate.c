@@ -115,3 +115,17 @@ unsigned char getNumberOfTiresRequiredForPole(Operation op) {
     
     return 2;
 }
+
+void driveStepper(unsigned char revolutions, unsigned char dir) {
+    STEPPER_EN = 1;
+    STEPPER_DIR = dir;
+    STEPPER_PULSE = 0;
+    for (int i = 0; i < (200 * revolutions); i ++) {
+        STEPPER_PULSE = 1;
+        __delay_ms(1);
+        STEPPER_PULSE = 0;
+        __delay_ms(1);
+    }
+    STEPPER_EN = 0;
+    STEPPER_DIR = 0;
+}

@@ -17,7 +17,7 @@
 #include "operate.h"
 #include "uart.h"
 
-#include <stdio.h>
+#include <stdio.h>   Acqxx
 #include <stdbool.h>
 
 //** MACROS **//
@@ -69,6 +69,16 @@ typedef enum {
 typedef enum {
     MSG_STOP = 0,
     MSG_START,
+    MSG_RETURN,
+    MSG_DEPLOY_STEPPER,
+    MSG_COMPLETE_OP,
+    MSG_DRIVING,
+    MSG_RETURNING,
+    MSG_DEPLOYMENT_COMPLETE,
+    MSG_DEBUG_DRIVE_FORWARD,
+    MSG_DEBUG_DRIVE_BACKWARD,
+    MSG_DEBUG_STOP,
+    MSG_DEBUG_SENassSOR
 } MSG_CODE;
 
 //** VARIABLES **//
@@ -83,6 +93,7 @@ unsigned char page;
 volatile bool key_was_pressed = false;
 volatile bool emergency_stop_pressed = false;
 volatile bool receivedMessageFromArduino = false;
+volatile unsigned char messageFromArduino;
 volatile unsigned char key;
 
 // RTC Variables
@@ -133,6 +144,7 @@ void main(void) {
     unsigned char onDuty = 0;
     unsigned char pwmDrive = 0x0;
     unsigned char sensorReading = 0;
+    unsigned short currentPos = 0;
 
     // Main Loop
     while (1) {
@@ -288,15 +300,18 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'A':
-                            driveDCMotor(BOTH, CLOCKWISE);
+//                            driveDCMotor(BOTH, CLOCKWISE);
+                            UART_Write(MSG_DEBUG_DRIVE_FORWARD);
                             break;
 
                         case 'B':
-                            driveDCMotor(BOTH, COUNTER_CLOCKWISE);
+//                            driveDCMotor(BOTH, COUNTER_CLOCKWISE);
+                            UART_Write(MSG_DEBUG_DRIVE_BACKWARD);
                             break;
 
                         case 'C':
-                            driveDCMotor(BOTH, OFF);
+//                            driveDCMotor(BOTH, OFF);
+                            UART_Write(MSG_DEBUG_STOP);
                             break;
 
                         case 'D':
@@ -305,62 +320,6 @@ void main(void) {
 
                         case '1':
                             setScreen(SC_DEBUG_STEPPER);
-                            break;
-                            
-                        case '2':
-                            if (onDuty > 0) {
-                                onDuty--;
-                            }
-                            lcd_home();
-                            printf("On Duty:     %03d", onDuty);
-                            break;
-                            
-                        case '3':
-                            if (onDuty < 100) {
-                                onDuty++;
-                            }
-                            lcd_home();
-                            printf("On Duty:     %03d", onDuty);
-                            break;
-                            
-                        case '4':
-                            onDuty = 0;
-                            break;
-                            
-                        case '5':
-                            if (onDuty <= 10) {
-                                onDuty = 0;
-                            } else {
-                                onDuty-= 10;
-                            }
-                            lcd_home();
-                            printf("On Duty:     %03d", onDuty);
-                            break;
-                            
-                        case '6':
-                            if (onDuty >= 90) {
-                                onDuty = 100;
-                            } else {
-                                onDuty += 10;
-                            }
-                            lcd_home();
-                            printf("On Duty:     %03d", onDuty);
-                            break;
-                            
-                        case '7':
-                            onDuty = 50;
-                            break;
-                            
-                        case '0':
-                            pwmDrive = 0;
-                            break;
-                            
-                        case '*':
-                            pwmDrive = 1;
-                            break;
-                            
-                        case '#':
-                            pwmDrive = 2;
                             break;
                             
                         default:
@@ -396,170 +355,75 @@ void main(void) {
             case SC_DEBUG_STEPPER:
                 
                 if (key_was_pressed) {
-                    switch (key) {
-                        case 'A':
-                            stepStepper(step);
-                            break;
-
-                        case 'B':
-                            if (step == 3) {
-                                step = 0;
-                            } else {
-                                step++;
-                            }
-                            
-                            break;
-
-                        case 'C':
-                            if (step == 0) {
-                                step = 3;
-                            } else {
-                                step--;
-                            }
-                            
-                            break;
-                            
+                    switch (key) {                        
                         case 'D':
                             setScreen(SC_DEBUG);
                             break;
-
-                        case '1':
-                            stepsRemaining = STEPS_FOR_ONE_REVOLUTION;
-                            step = 0;
                             
+                        case '1':
+//                            STEPPER_IN1 = 1;
+//                            STEPPER_IN3 = 1;
+//                            STEPPER_IN2 = 0;
+//                            for (char i = 0; i < 200; i ++) {
+//                                STEPPER_IN2 = 1;
+//                                __delay_ms(1);
+//                                STEPPER_IN2 = 0;
+//                                __delay_ms(1);
+//                            }
+                            driveStepper(1, 1);
                             break;
                             
                         case '2':
-                            stepperTick = 0;
-                            while (stepsRemaining > 0) {
-                                if (stepperTick == 2) {
-                                    stepStepper(step);
-                                
-                                    if (step == 3) {
-                                        step = 0;
-                                    } else {
-                                        step++;
-                                    }
-                                
-                                    stepperTick = 0;
-                                    stepsRemaining--;
-                                }
-                                __delay_ms(1);
-                                stepperTick++;
-                            }
+//                            STEPPER_IN1 = 0;
+//                            STEPPER_IN3 = 1;
+//                            STEPPER_IN2 = 0;
+//                            for (char i = 0; i < 200; i ++) {
+//                                STEPPER_IN2 = 1;
+//                                __delay_ms(1);
+//                                STEPPER_IN2 = 0;
+//                                __delay_ms(1);
+//                            }
+                            driveStepper(1, 0);
                             break;
                             
-                        case '4':
-                            spinning = 0x1;
-                            break;
-                            
-                        case '5':
-                            spinning = 0x2;
-                            break;
-                            
-                        case '6':
-                            spinning = 0x0;
-                            break;
-                            
-                        case '7':
-                            STEPPER_IN1 = 1;
-                            STEPPER_IN3 = 1;
-                            STEPPER_IN2 = 0;
-                            for (char i = 0; i < 200; i ++) {
-                                STEPPER_IN2 = 1;
-                                __delay_ms(1);
-                                STEPPER_IN2 = 0;
-                                __delay_ms(1);
-                            }
-                            break;
-                            
-                        case '8':
-                            STEPPER_IN1 = 0;
-                            STEPPER_IN3 = 1;
-                            STEPPER_IN2 = 0;
-                            for (char i = 0; i < 200; i ++) {
-                                STEPPER_IN2 = 1;
-                                __delay_us(550);
-                                STEPPER_IN2 = 0;
-                                __delay_us(550);
-                            }
-                            break;
-                            
-                        case '9':
+                        case '0':
                             STEPPER_IN1 = 0;
                             STEPPER_IN2 = 0;
                             STEPPER_IN3 = 0;
                             STEPPER_IN4 = 0;
                             break;
                             
-                        case '*':
-                            STEPPER_IN1 = 1;
-                            STEPPER_IN3 = 1;
-                            STEPPER_IN2 = 0;
-                            for (short i = 0; i < 4000; i ++) {
-                                STEPPER_IN2 = 1;
-                                __delay_us(600);
-                                STEPPER_IN2 = 0;
-                                __delay_us(600);
-                            }
+                        case '3':
+                            // STEPPER_IN1 = 1;
+                            // STEPPER_IN3 = 1;
+                            // STEPPER_IN2 = 0;
+                            // for (short i = 0; i < 4000; i ++) {
+                            //     STEPPER_IN2 = 1;
+                            //     __delay_ms(1);
+                            //     STEPPER_IN2 = 0;
+                            //     __delay_ms(1);
+                            // }
+                            driveStepper(24, 1);
                             break;
                             
-                        case '#':
-                            STEPPER_IN1 = 0;
-                            STEPPER_IN3 = 1;
-                            STEPPER_IN2 = 0;
-                            for (short i = 0; i < 4000; i ++) {
-                                STEPPER_IN2 = 1;
-                                __delay_us(600);
-                                STEPPER_IN2 = 0;
-                                __delay_us(600);
-                            }
+                        case '4':
+                            // STEPPER_IN1 = 0;
+                            // STEPPER_IN3 = 1;
+                            // STEPPER_IN2 = 0;
+                            // for (short i = 0; i < 4000; i ++) {
+                            //     STEPPER_IN2 = 1;
+                            //     __delay_us(600);
+                            //     STEPPER_IN2 = 0;
+                            //     __delay_us(600);
+                            // }
+                            driveStepper(24, 0);
+                            break;
                             
                         default:
                             break;
                     }
 
                     key_was_pressed = false;
-                }
-                
-                switch (spinning) {
-                    case 0x1:
-                        if (stepperTick == 2) {
-                            stepStepper(step);
-
-                            if (step == 3) {
-                                step = 0;
-                            } else {
-                                step++;
-                            }
-
-                            stepperTick = 0;
-                            stepsRemaining--;
-                        }
-                        stepperTick++;
-                        
-                        break;
-                        
-                    case 0x2:
-                        if (stepperTick == 2) {
-                            stepStepper(step);
-
-                            if (step == 0) {
-                                step = 3;
-                            } else {
-                                step--;
-                            }
-
-                            stepperTick = 0;
-                            stepsRemaining--;
-                        }
-                        stepperTick++;
-                        break;
-                        
-                    default:
-                        break;
-                        
-                        
                 }
                 break;
                 
@@ -577,7 +441,7 @@ void main(void) {
                             printf("Reading distance");
                             lcd_set_ddram_addr(LCD_LINE2_ADDR);
                             printf("                ");
-                            sensorReading = readSensor();
+                            sensorReading = UART_Request_Data(MSG_DEBUG_SENSOR);
                             lcd_home();
                             if (sensorReading) {
                                 printf("Distance:  %03dmm", sensorReading);
@@ -753,16 +617,27 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case '1':
-                            UART_Transmit_Yield(MSG_START);
+                            // UART_Transmit_Yield(MSG_START);
+                            UART_Write(MSG_START);
                             break;
 
                         case '2':
-                            UART_Transmit_Yield(MSG_STOP);
+                            // UART_Transmit_Yield(MSG_STOP);
+                            UART_Write(MSG_STOP);
+                            break;
+
+                        case '3':
+//                            if (RCIF && RCIE) {
+//                                lcd_home();
+//                                printf("dist:        %03d", RCREG);
+//                                RCIF = 0;
+//                            }
+                            UART_Write(MSG_RETURN);
                             break;
                             
                         case 'D':
                             // setStatus(ST_COMPLETED_OP);
-                            setScreen(SC_MENU);
+                            setStatus(ST_READY);
                             break;
 
                         default:
@@ -771,6 +646,42 @@ void main(void) {
  
                     key_was_pressed = false;
                 }
+                
+                __delay_us(500);
+
+                if (UART_Data_Ready()) {
+                    messageFromArduino = UART_Read();
+                    switch (messageFromArduino) {
+                        case MSG_DRIVING:
+                            lcd_home();
+                            printf("   DRIVING...   ");
+                            lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                            currentPos = UART_Read();
+                            break;
+
+                        case MSG_RETURNING:
+                            lcd_home();
+                            printf("  RETURNING...  ");
+                            break;
+
+                        case MSG_DEPLOY_STEPPER:
+                            lcd_home();
+                            printf(" DEPLOY STEPPER ");
+                            driveStepper(24, 1);
+                            UART_Write(MSG_DEPLOYMENT_COMPLETE);
+                            break;
+
+                        case MSG_COMPLETE_OP:
+                            setStatus(ST_COMPLETED_OP);
+                            break;
+
+                        default:
+                            lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                            printf("%X", messageFromArduino);
+                            break;
+                    }
+                }
+                
                 /*
                 switch (getStatus()) {
                     case ST_OPERATE_START:
@@ -1261,26 +1172,27 @@ void initialize(void) {
     initLCD();
     
     // Initialize UART
-    // Configure the baud rate generator for 9600 bits per second
-    long baudRate = 9600;
-    SPBRG = (unsigned char)((_XTAL_FREQ / (64 * baudRate)) - 1);
+    UART_Init(9600);
+    // // Configure the baud rate generator for 9600 bits per second
+    // long baudRate = 9600;
+    // SPBRG = (unsigned char)((_XTAL_FREQ / (64 * baudRate)) - 1);
     
-    // Configure transmit control register
-    TXSTAbits.TX9 = 0; // Use 8-bit transmission (8 data bits, no parity bit)
-    TXSTAbits.SYNC = 0; // Asynchronous communication
-    TXSTAbits.TXEN = 1; // Enable transmitter
-    __delay_ms(5); // Enabling the transmitter requires a few CPU cycles for stability
+    // // Configure transmit control register
+    // TXSTAbits.TX9 = 0; // Use 8-bit transmission (8 data bits, no parity bit)
+    // TXSTAbits.SYNC = 0; // Asynchronous communication
+    // TXSTAbits.TXEN = 1; // Enable transmitter
+    // __delay_ms(5); // Enabling the transmitter requires a few CPU cycles for stability
     
-    // Configure receive control register
-    RCSTAbits.RX9 = 0; // Use 8-bit reception (8 data bits, no parity bit)
-    RCSTAbits.CREN = 1; // Enable receiver
+    // // Configure receive control register
+    // RCSTAbits.RX9 = 0; // Use 8-bit reception (8 data bits, no parity bit)
+    // RCSTAbits.CREN = 1; // Enable receiver
     
-    // Enforce correct pin configuration for relevant TRISCx
-    TRISCbits.TRISC6 = 0; // TX = output
-    TRISCbits.TRISC7 = 1; // RX = input
+    // // Enforce correct pin configuration for relevant TRISCx
+    // TRISCbits.TRISC6 = 0; // TX = output
+    // TRISCbits.TRISC7 = 1; // RX = input
    
-    // Enable serial peripheral
-    RCSTAbits.SPEN = 1;
+    // // Enable serial peripheral
+    // RCSTAbits.SPEN = 1;
     
 //    // Initialize I2C Master with 100 kHz clock
 //    // Write the address of the slave device, that is, the Arduino Nano. Note
@@ -1695,7 +1607,11 @@ void __interrupt() interruptHandler(void){
     } else if (INT2IE && INT2IF) {
         emergency_stop_pressed = true;
         INT2IF = 0;
-    } else if (RCIE && RCIF) {
 
+    // } else if (RCIE && RCIF) {
+    //     receivedMessageFromArduino = true;
+    //     messageFromArduino = RCREG;
+    //     LATCbits.LATC0 = 1;
+    //     RCIF = 0;
     }
 }

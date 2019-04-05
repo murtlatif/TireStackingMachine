@@ -22,6 +22,10 @@
 #define STEPPER_IN2 LATEbits.LATE1
 #define STEPPER_IN3 LATAbits.LATA4
 #define STEPPER_IN4 LATAbits.LATA5
+
+#define STEPPER_EN LATEbits.LATE0
+#define STEPPER_PULSE LATEbits.LATE1
+#define STEPPER_DIR LATAbits.LATA4
 /******************************** Constants **********************************/
 
 
@@ -53,5 +57,7 @@ unsigned char getNumberOfTiresOnPole(void);
 unsigned char getNumberOfTiresRequiredForPole(Operation op);
 
 unsigned char readSensor(void);
+
+void driveStepper(unsigned char revolutions, unsigned char dir);
 
 #endif	/* OPERATE_H */
