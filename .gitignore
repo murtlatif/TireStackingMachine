@@ -1,3 +1,6 @@
 *
 !*.c
 !*.h
+!*.ino
+!/Arduino Code/
+
