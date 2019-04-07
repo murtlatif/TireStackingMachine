@@ -1,106 +1,86 @@
 /**
- * @pre The Co-processor is not driving lines on the UART bus (e.g. the JP_TX
- *      and JP_RX jumpers are removed)
- * @pre The character LCD is in an Arduino Nano socket
- * @pre PIC-Arduino link switches are enabled (ON) for D1 of the Arduino (the RX
- *      pin). However, make sure that neither of D0 and D1 are enabled (ON) 
- *      while programming the Arduino Nano
+ * uart.c
+ * Author: Murtaza Latif
  */
 
 #include "uart.h"
 
-unsigned char UART_Init(const long int baudrate) {
+unsigned char UART_Init(long int baudrate) {
     unsigned int x;
-    x = (_XTAL_FREQ - baudrate*64)/(baudrate*64);   //SPBRG for Low Baud Rate
-    if (x>255) {                                    //If High Baud Rage Require 
-        x = (_XTAL_FREQ - baudrate*16)/(baudrate*16); //SPBRG for High Baud Rate
-        BRGH = 1;                                     //Setting High Baud Rate
+
+    x = (_XTAL_FREQ - baudrate*64) / (baudrate*64);     // SPBRG for Low Baud Rate
+    if (x > 255) {                                      // If High Baud Rage Require 
+        x = (_XTAL_FREQ - baudrate*16) / (baudrate*16); // SPBRG for High Baud Rate
+        BRGH = 1;                                       // Setting High Baud Rate
     }
-    if(x<256) {
-        SPBRG = x;                                    //Writing SPBRG Register
-        SYNC = 0;                                     //Setting Asynchronous Mode, ie UART
-        SPEN = 1;                                     //Enables Serial Port
-        TRISC7 = 1;                                   //As Prescribed in Datasheet
-        TRISC6 = 1;                                   //As Prescribed in Datasheet
-        CREN = 1;                                     //Enables Continuous Reception
-        TXEN = 1;                                     //Enables Transmission
-        __delay_ms(5);                                    // Takes time for TXEN to settle
-        return UNSUCCESSFUL;                                     //Returns 1 to indicate Successful Completion
+
+    if(x < 256) {
+        SPBRG = x;      // Writing SPBRG Register
+        SYNC = 0;       // Setting Asynchronous Mode, i.e. UART
+        SPEN = 1;       // Enables Serial Port
+        TRISC7 = 1;     // As Prescribed in Datasheet
+        TRISC6 = 1;     // As Prescribed in Datasheet
+        CREN = 1;       // Enables Continuous Reception
+        TXEN = 1;       // Enables Transmission
+        __delay_ms(5);  // Takes time for TXEN to settle
+
+        return SUCCESSFUL;  // return to indicate a successful completion
   }
   
-  return SUCCESSFUL;                                    //Return to indicate UART initialization failed
+  return UNSUCCESSFUL;  //Return to indicate UART initialization failed
 }
 
-unsigned char UART_Write(char data) {
+// Writes a byte to the serial comm.
+unsigned char UART_Write(unsigned char data) {
     unsigned short timeoutCounter = 0;
-    while(!TXIF ) {
-        if (timeoutCounter == 10000) {
+
+    // If the byte cannot be written for more than 1.5 seconds, return UNSUCCESSFUL
+    while(!TXIF) {
+        if (timeoutCounter == 15000) {
             return UNSUCCESSFUL;
         }
     };
+
+    __delay_us(100);
+    timeoutCounter++;
+
     TXREG = data;
     return SUCCESSFUL;
 }
 
-char UART_TX_Empty(void) {
-    return TRMT;
-}
-
-void UART_Write_Text(char *text) {
-    int i;
-    for (i=0;text[i]!='\0';i++) {
-    UART_Write(text[i]);
+// Writes multiple bytes to the serial comm.
+void UART_Write_Text(unsigned char *text) {
+    for (unsigned char i = 0; text[i] != '\0'; i++) {
+        UART_Write(text[i]);
     }
 }
 
-unsigned char UART_Transmit_Yield(unsigned char byteToTransmit) {
-    unsigned short timeoutCounter = 0;
-    
-    while (!TXIF | !TRMT) {
-        if (timeoutCounter == 10000) {
-            return UNSUCCESSFUL;
-        }
-        
-        timeoutCounter++;
-        __delay_ms(1);
-    }
-    
-    TXREG = byteToTransmit;
-    return SUCCESSFUL;
-}
-
-unsigned char UART_Receive(unsigned char *data) {
-    if (PIR1bits.RCIF) {        // Check if UART receive interrupt flag is set
-        if (PIR1bits.TXIF) {    // Check if TXREG is empty
-            *data = RCREG;
-            return SUCCESSFUL;
-        }
-    }
-    
-    return UNSUCCESSFUL;
-}
-
+// Checks whether data is ready to receive from the serial comm.
 char UART_Data_Ready(void) {
     return RCIF;
 }
 
-char UART_Read(void) {
+// Read and return the data in the register
+unsigned char UART_Read(void) {
     while(!RCIF);
     return RCREG;
 }
 
-void UART_Read_Text(char *Output, unsigned int length) {
-    unsigned int i;
-    for (int i=0;i<length;i++) {
-        Output[i] = UART_Read();
+// Read and store data of variable length into an output variable
+void UART_Read_Text(char *output, unsigned int length) {
+    unsigned char i;
+    for (i = 0; i < length; i++) {
+        output[i] = UART_Read();
     }
 }
 
+// Write a code into the serial comm. and return the next byte received
 char UART_Request_Byte(unsigned char requestCode) {
     UART_Write(requestCode);
     return UART_Read();
 }
 
+// Write a code into the serial comm. and return the next two bytes received
 short UART_Request_Short(unsigned char requestCode) {
     short requestedData;
     UART_Write(requestCode);

@@ -1,10 +1,6 @@
 /**
- * @file
- * @author Murtaza Latif
- * 
- * @defgroup I2C
- * @brief I2C driver
- * @{
+ * I2C.h
+ * Author: Murtaza Latif
  */
 
 #ifndef I2C_H
@@ -69,7 +65,6 @@ void condensedReadTime(unsigned char pTime[]);
 
 void rtcSetTime(char timeToInitialize[]);
 
-unsigned char readSensor(void);
 /**
  * @}
  */

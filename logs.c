@@ -1,8 +1,6 @@
 /**
- * @file
- * @author Murtaza Latif
- *
- * Created on February 27th, 2019 at 2:31 PM
+ * logs.c
+ * Author: Murtaza Latif
  */
 
 /********************************* Includes **********************************/
@@ -73,124 +71,6 @@ unsigned char getSlotsAvailable(void) {
     }
 
     return count;
-}
-
-void storeCondensedOperation(Operation op) {
-    char i = 0;     // Temporary variable for running loops
-    unsigned char currentAddr = 0;  // Current address being stored in operation
-    unsigned char leftHalfByte = 0x00;  // Stores tire info about Pole 1 + (2n)
-    unsigned char rightHalfByte = 0x00; // Stores tire info about Pole 2 + (2n)
-    
-    // Store BYTE 00 - 04
-    for (i = 0; i < 5; i++) {
-        op.condensedOperation[currentAddr] = op.startTime[i];
-        currentAddr++;
-    }
-    
-    // Store BYTE 05
-    op.condensedOperation[currentAddr] = op.duration;
-    currentAddr++;
-    
-    // Store BYTE 06
-    op.condensedOperation[currentAddr] = ((op.totalSuppliedTires & 0x0F) << 4) | (op.totalNumberOfPoles & 0x0F);
-    currentAddr++;
-    
-    // Store BYTE 07 - 11
-    for (i = 0; i < op.totalNumberOfPoles; i++) {
-        if (i % 2 == 0) {
-            leftHalfByte = ((op.tiresDeployedOnPole[i] & 0x03) << 2) | (op.tiresOnPoleAfterOperation[i] & 0x03);
-            if (i == op.totalNumberOfPoles - 1) {
-                op.condensedOperation[currentAddr] = (leftHalfByte << 4);
-                currentAddr++;
-            }
-        } else {
-            rightHalfByte = ((op.tiresDeployedOnPole[i] & 0x03) << 2) | (op.tiresOnPoleAfterOperation[i] & 0x03);
-            op.condensedOperation[currentAddr] = (leftHalfByte << 4) | (rightHalfByte);
-            currentAddr++;
-        }
-    }
-    
-    currentAddr += (op.totalNumberOfPoles - 10);   // Skip addresses reserved for poles
-    
-    // Store BYTE 12 - 31
-    for (i = 0; i < op.totalNumberOfPoles; i++) {
-        op.condensedOperation[currentAddr] = (op.distanceOfPole[i] & 0xFF00) >> 8;
-        currentAddr++;
-        op.condensedOperation[currentAddr] = (op.distanceOfPole[i] & 0x00FF);
-        currentAddr++;
-    }
-    
-}
-
-void unpackCondensedOperation(Operation op) {
-    unsigned char currentAddr = 0;
-    for (char i = 0; i < 5; i++) {
-        op.startTime[i] = op.condensedOperation[currentAddr];
-        currentAddr++;
-    }
-    
-    op.duration = op.condensedOperation[currentAddr];
-    currentAddr++;
-
-    op.totalSuppliedTires = op.condensedOperation[currentAddr] >> 4;
-    op.totalNumberOfPoles = op.condensedOperation[currentAddr] & 0x0F;
-    currentAddr++;
-
-    for (char i = 0; i < op.totalNumberOfPoles; i++) {
-        if (i % 2 == 0) {
-            op.tiresDeployedOnPole[i] = op.condensedOperation[currentAddr] >> 6;
-            op.tiresOnPoleAfterOperation[i] = (op.condensedOperation[currentAddr] >> 4) & 0x3;
-            if (i == op.totalNumberOfPoles - 1) {
-                currentAddr++;
-            }
-        } else {
-            op.tiresDeployedOnPole[i] = (op.condensedOperation[currentAddr] >> 2) & 0x3;
-            op.tiresOnPoleAfterOperation[i] = op.condensedOperation[currentAddr] & 0x3;
-            currentAddr++;
-        }
-    }
-
-    currentAddr += ((10 - op.totalNumberOfPoles)) / 2;
-
-    for (char i = 0; i < op.totalNumberOfPoles; i++) {
-        op.distanceOfPole[i] = (op.condensedOperation[currentAddr] << 8) | (op.condensedOperation[currentAddr + 1]);
-        currentAddr += 2;
-    }
-
-}
-
-unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation op) {
-
-    if (slotNumber >= MAX_LOGS) {
-        return UNSUCCESSFUL;
-    }
-    
-    unsigned char result;
-    storeCondensedOperation(op);
-
-    for (char i = 0; i < 32; i++) {
-        result = EEPROM_WriteByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG + i, op.condensedOperation[i]);
-        if (result == UNSUCCESSFUL) {
-            return UNSUCCESSFUL;
-        }
-    }
-    
-    // Write log slot as used
-    result = setLogSlot(slotNumber, USED);
-    return result;   
-}
-
-unsigned char getCondensedOperationFromLogs(Operation op, unsigned char slotNumber) {
-    if (slotNumber > MAX_LOGS) {
-        return UNSUCCESSFUL;
-    }
-    
-    for (char i = 0; i < 32; i++) {
-        op.condensedOperation[i] = EEPROM_ReadByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG + i);
-    }
-    
-    return SUCCESSFUL;
-    
 }
 
 unsigned char storeOperationIntoLogs(Operation op, unsigned char slotNumber) {

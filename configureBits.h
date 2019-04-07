@@ -1,8 +1,6 @@
 /**
- * @file
- * @author Murtaza Latif
- *
- * Created on January 13th, 2019 at 11:12 AM
+ * configureBits.h
+ * Author: Murtaza Latif
  */
 
 #ifndef CONFIG_BITS_H

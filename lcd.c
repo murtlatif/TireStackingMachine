@@ -1,9 +1,6 @@
 /**
- * @file
- * @author Murtaza Latif
- *
- * Created on January 15th, 2019, 5:21 PM
- * @ingroup CharacterLCD
+ * lcd.c
+ * Author: Murtaza Latif
  */
 
 /********************************* Includes **********************************/
@@ -122,9 +119,12 @@ void putch(char data){
 // Display functions
 void displayPage(char line1[], char line2[], char line3[], char line4[]) {
     // Displays text on the LCD screen
+
+    // Clear LCD and reset cursor
     lcd_clear();
     lcd_home();
     
+    // Print each requested line into the corresponding addresses
     printf(line1);
     lcd_set_ddram_addr(LCD_LINE2_ADDR);
     printf(line2);
@@ -137,16 +137,22 @@ void displayPage(char line1[], char line2[], char line3[], char line4[]) {
 void displayMenuPage(char line1[], char line2[], char line3[], bool leftPage, bool rightPage) {
     // Displays text on the LCD screen and displays a menu at the bottom
     // depending on whether leftPage and rightPage are true/false.
-    displayPage(line1, line2, line3, "");
+
+    // Print the menu framework with the requested first 3 lines
+    displayPage(line1, line2, line3, "                ");
+
     if (leftPage) {
+        // Print the left arrow symbol if there is a previous page available
         printf("%c[*] ", 0b01111111);
     } else {
         printf("     ");
     }
     
+    // Print the return symbol
     printf("BCK[0]");
     
     if (rightPage) {
+        // Print the right arrow symbol if there is a next page available
         printf(" [#]%c", 0b01111110);
     }
 }
@@ -160,33 +166,41 @@ void displayTime(unsigned char time[]) {
     
     lcd_set_ddram_addr(LCD_LINE2_ADDR);
     printf("%s ", months[time[5]]);     // Month
-    printf("%02X", time[4]);                // Date
-    if ((time[4] & 0x0F) <= 3) {              // Date Suffix
+    printf("%02X", time[4]);            // Date
+    if ((time[4] & 0x0F) <= 3) {        // Date Suffix
         printf("%s", dateSuffix[(time[4] & 0x0F)]);
     } else {
         printf("th");
     }
-    printf(", 20%02X", time[6]);            // Year
+    printf(", 20%02X", time[6]);        // Year
     
-    lcd_set_ddram_addr(LCD_LINE3_ADDR);
+    lcd_set_ddram_addr(LCD_LINE3_ADDR); 
     unsigned char hour;
     // Getting the hour into 12 hour time
+
     if (time[2] > 0x12) {
+        // Convert only if the hour is greater than 12
         if ((time[2] & 0xF) < 0x2) {
-            hour = (((time[2] >> 4) - 2) << 4) | 0xA - (2 - ((time[2] & 0xF)));
+            // If the hour is 20 or 21
+            // The first digit will be 0, the second will be [10 - (2 - (secondHourDigit))]
+            hour = (0xA - (2 - (time[2] & 0xF)));
         } else {
+            // If the hour has any second digit that is greater than 1 (13-19, 22-23)
+            // The first digit will reduce by 1, the second digit is reduced by 2
             hour = (((time[2] >> 4) - 0x1) << 4) | ((time[2] & 0xF) - 0x2);
         }
     } else {
+        // If the hour is 12 or less, no need to convert to 12 hour time
         hour = time[2];
     }
     
     if (time[2] == 0x00) {
-        printf("   12:");                           // Hour (for 12 AM);
+        // If the hour is midnight, convert to 12 rather than 0
+        printf("   12:");   // Hour (12:00 AM)
     } else {
-        printf("   %02X:", hour);            // Hour
+        printf("   %02X:", hour);   // Hour
     }
     printf("%02X:", time[1]);                       // Minute
     printf("%02X ", time[0]);                       // Second
-    printf("%s  ", time[2] >= 0x12 ? "PM" : "AM");   // AM/PM
+    printf("%s  ", time[2] >= 0x12 ? "PM" : "AM");  // AM / PM
 }

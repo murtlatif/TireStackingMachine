@@ -1,7 +1,6 @@
 /**
- * @file
- * @author Murtaza Latif
- * Created on February 27th, 2019, 2:42 PM
+ * I2C.c
+ * Author: Murtaza Latif
  */
 
 /********************************* Includes **********************************/

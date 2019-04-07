@@ -1,4 +1,7 @@
-// MAIN FILE - Murtaza Latif
+/**
+ * main.c
+ * Author: Murtaza Latif
+ */
 
 //** INCLUDES **//
 #include <xc.h>
@@ -39,7 +42,6 @@ typedef enum {
     ST_READY,
     ST_ERROR,
     ST_OPERATE_START,
-    ST_OPERATE_IDLE,
     ST_OPERATE_DRIVING,
     ST_OPERATE_POLE_DETECTED,
     ST_OPERATE_DEPLOYING_TIRE,
@@ -65,9 +67,9 @@ typedef enum {
     // Logs
     SC_LOGS_MENU,
     SC_LOGS_VIEW,
-    SC_LOAD_TIRES,
 
     // Operating
+    SC_LOAD_TIRES,
     SC_OPERATING,
 
     // Termination
@@ -156,28 +158,13 @@ void main(void) {
     // Initialize other variables
 
     // Time Variables
-
-    unsigned short drivingTick = 0;
-    unsigned char pwmTick = 0;
-    unsigned short durationTick = 0;
-    unsigned char stepperTick = 0;
     unsigned short tick = 0;
     unsigned char counter = 0;
     unsigned char time[7];
 
     // Operation Variables
     unsigned char loadedTires = 15;
-    unsigned char step = 0;
-    unsigned short stepsRemaining = 0;
-    bool pole_found = false;
-    unsigned char spinning = 0;
-    unsigned char slaveMotorSpeed = 0;
-    unsigned char masterMotorSpeed = 0;
-    unsigned char onDuty = 0;
-    unsigned char pwmDrive = 0x0;
-    unsigned char sensorReading = 0;
-    unsigned short currentPos = 0;
-
+    unsigned char sensorReading;
     // Main Loop
     while (1) {
         
@@ -324,17 +311,17 @@ void main(void) {
                     switch (key) {
                         case 'A':
                             // Tell Arduino to drive motors forward
-                            UART_Write(MSG_DEBUG_DRIVE_FORWARD);
+                            UART_Write(MSG_P2A_DEBUG_DRIVE_FORWARD);
                             break;
 
                         case 'B':
                             // Tell Arduino to drive motors backward
-                            UART_Write(MSG_DEBUG_DRIVE_BACKWARD);
+                            UART_Write(MSG_P2A_DEBUG_DRIVE_BACKWARD);
                             break;
 
                         case 'C':
                             // Tell Arduino to stop driving motors
-                            UART_Write(MSG_DEBUG_STOP);
+                            UART_Write(MSG_P2A_DEBUG_STOP);
                             break;
 
                         case 'D':
@@ -419,7 +406,7 @@ void main(void) {
                             printf("                ");
 
                             // Retrieve sensor data from Arduino
-                            sensorReading = UART_Request_Byte(MSG_DEBUG_SENSOR);
+                            sensorReading = UART_Request_Byte(MSG_P2A_DEBUG_SENSOR);
 
                             // Write sensor data to LCD
                             lcd_home();
@@ -605,7 +592,7 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'D':
-                            UART_Write(MSG_STOP);
+                            UART_Write(MSG_P2A_STOP);
                             break;
 
                         default:
@@ -795,7 +782,7 @@ void main(void) {
                             } else {
                                 // Try to save the operation into the logs and throw an error if failed
                                 if (storeOperationIntoLogs(CURRENT_OPERATION, page * 3) == UNSUCCESSFUL) {
-                                    setState(ST_ERROR);
+                                    setStatus(ST_ERROR);
                                     setScreen(SC_SAVE_OPERATION_ERROR);
                                 } else {
                                     CURRENT_OPERATION.saveSlot = (page * 3) + 1;
@@ -812,7 +799,7 @@ void main(void) {
                             } else {
                                 // Try to save the operation into the logs and throw an error if failed
                                 if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 1) == UNSUCCESSFUL) {
-                                    setState(ST_ERROR);
+                                    setStatus(ST_ERROR);
                                     setScreen(SC_SAVE_OPERATION_ERROR);
                                 } else {
                                     CURRENT_OPERATION.saveSlot = (page * 3) + 2;
@@ -829,7 +816,7 @@ void main(void) {
                             } else {
                                 // Try to save the operation into the logs and throw an error if failed
                                 if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 2) == UNSUCCESSFUL) {
-                                    setState(ST_ERROR);
+                                    setStatus(ST_ERROR);
                                     setScreen(SC_SAVE_OPERATION_ERROR);
                                 } else {
                                     CURRENT_OPERATION.saveSlot = (page * 3) + 3;
@@ -862,7 +849,7 @@ void main(void) {
                         case 'D':
                             // Try to save the operation into the logs and throw an error if failed
                             if (storeOperationIntoLogs(CURRENT_OPERATION, page * 3) == UNSUCCESSFUL) {
-                                setState(ST_ERROR);
+                                setStatus(ST_ERROR);
                                 setScreen(SC_SAVE_OPERATION_ERROR);
                             } else {
                                 CURRENT_OPERATION.saveSlot = (page * 3) + 1;
@@ -893,7 +880,7 @@ void main(void) {
                         case 'D':
                             // Try to save the operation into the logs and throw an error if failed
                             if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 1) == UNSUCCESSFUL) {
-                                setState(ST_ERROR);
+                                setStatus(ST_ERROR);
                                 setScreen(SC_SAVE_OPERATION_ERROR);
                             } else {
                                 CURRENT_OPERATION.saveSlot = (page * 3) + 2;
@@ -924,7 +911,7 @@ void main(void) {
                         case 'D':
                             // Try to save the operation into the logs and throw an error if failed
                             if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 2) == UNSUCCESSFUL) {
-                                setState(ST_ERROR);
+                                setStatus(ST_ERROR);
                                 setScreen(SC_SAVE_OPERATION_ERROR);
                             } else {
                                 CURRENT_OPERATION.saveSlot = (page * 3) + 3;
@@ -1092,13 +1079,13 @@ void main(void) {
 // State functions
 void initialize(void) {
 
-    // E0, E1, A4 = Stepper Motor
+    // Stepper Motor Pins: E0 (STEPPER_EN), E1 (STEPPER_PULSE), A4 (STEPPER_DIR)
     TRISEbits.TRISE0 = 0;
     TRISEbits.TRISE1 = 0;
     TRISAbits.TRISA4 = 0;
-    LATEbits.LATE0 = 0;
-    LATEbits.LATE1 = 0;
-    LATAbits.LATA4 = 0;
+    STEPPER_EN = 0;     // E0
+    STEPPER_PULSE = 0;  // E1
+    STEPPER_DIR = 0;    // A4
 
     // RD2 is the character LCD RS
     // RD3 is the character LCD enable (E)
@@ -1114,9 +1101,6 @@ void initialize(void) {
     
     // Enable RB0 (emergency stop) interrupt
     INT0E = 1;
-    
-    // Enable RC7 (RX) interrupt
-    RCIE = 1;
     
     // Initialize LCD
     initLCD();
@@ -1196,7 +1180,7 @@ void setStatus(Status newStatus) {
             driveStepper(REVOLUTIONS_TO_DROP_ONE_TIRE, FORWARD);
 
             // tell arduino that deployment was completed
-            UART_Write(MSG_DEPLOYMENT_COMPLETE);
+            UART_Write(MSG_P2A_DEPLOYMENT_COMPLETE);
             break;
 
         case ST_OPERATE_RETURN:
@@ -1211,8 +1195,8 @@ void setStatus(Status newStatus) {
 
         default:
         // For an invalid state, throw an error
-            setState(ST_ERROR);
-            setScreen(SC_INVALID_SCREEN_ERROR)
+            setStatus(ST_ERROR);
+            setScreen(SC_INVALID_SCREEN_ERROR);
             break;
     }
 }
@@ -1394,7 +1378,7 @@ void setScreen(Screen newScreen) {
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
 
                     // Request and print the number of tires found from the Arduino onto the LCD
-                    printf("Tires Found:  %02d", UART_Request_Byte(MSG_P2A_REQUEST_TIRES_FOUND);
+                    printf("Tires Found:  %02d", UART_Request_Byte(MSG_P2A_REQUEST_TIRES_FOUND));
 
                     break;
 
@@ -1623,6 +1607,7 @@ void __interrupt() interruptHandler(void){
         INT1IF = 0;
 
     } else if (INT0IE && INT0IF) {
+        // Set a flag to customize the termination screen
         emergency_stop_pressed = true;
         activateEmergencyStop();
         INT0IF = 0;

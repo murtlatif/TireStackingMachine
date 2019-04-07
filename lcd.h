@@ -1,16 +1,10 @@
 /**
- * @file
- * @author Murtaza Latif
- *
- * Created on January 15th, 2019, 5:31 PM
- *
- * @defgroup CharacterLCD
- * @brief Driver for Hitachi HD44780-based character LCD
- * @{
+ * lcd.h
+ * Author: Murtaza Latif
  */
 
-#ifndef RTC_H
-#define RTC_H
+#ifndef LCD_H
+#define LCD_H
 
 /********************************* Includes **********************************/
 #include <xc.h>
