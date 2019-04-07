@@ -137,18 +137,3 @@ void rtcSetTime(char timeToInitialize[]) {
     
     I2C_Master_Stop(); //Stop condition
 }
-
-unsigned char readSensor(void) {
-    lcd_set_ddram_addr(LCD_LINE2_ADDR);
-    printf("_SA");
-    I2C_Master_Start();
-    printf("SB");
-    I2C_Master_Write(0b00010001); // 7-bit Arduino slave address + Read
-    printf("SC");
-    unsigned char data = I2C_Master_Read(NACK); // Read one char only
-    printf("SD");
-    I2C_Master_Stop();
-    printf("SE_");
-    
-    return data;
-}

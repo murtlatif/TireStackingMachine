@@ -13,21 +13,25 @@
 #include "configureBits.h"
 
 /********************************** Macros ***********************************/
+#define ADDR_FIRST_LOG 0x00   // the address of the first log
 
-#define ADDR_LOGSLOTS_LOW 0x00
-#define ADDR_LOGSLOTS_HIGH 0x01
-#define ADDR_FIRST_LOG 0x02
+#define LOG_SIZE 49      // the size (bytes) that one operation takes
+#define MAX_LOGS 6       // maximum number of logs that can be stored
 
-#define LOG_SIZE 32
-#define MAX_LOGS 16
+#define SLOT_AVAILABLE 2 // value to represent an available log slot
+#define SLOT_USED 3      // value to represent a used log slot
+
+#define stopIfFailed(RESULT) {     \
+     if (RESULT == UNSUCCESSFUL) { \
+          return UNSUCCESSFUL;     \
+     }                             \
+}
 /******************************** Constants **********************************/
-
 
 /********************************** Types ************************************/
 typedef struct Operation {
-     unsigned char condensedOperation[32];
-
-     // Stores information
+     // Stored information
+     unsigned bool savedIntoLogs;
      unsigned char startTime[5];
      unsigned char duration;
      unsigned char totalSuppliedTires;
@@ -38,7 +42,6 @@ typedef struct Operation {
 
      // Unstored (temporary) information
      unsigned char tiresRemaining;
-     unsigned char savedSlot;
      float position;
 
 } Operation;
@@ -112,5 +115,7 @@ void unpackCondensedOperation(Operation op);
 unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation op);
 
 unsigned char getCondensedOperationFromLogs(Operation op, unsigned char slotNumber);
+
+unsigned char storeOperationIntoLogs(Operation op, unsigned char slotNumber);
 
 #endif	/* LOGS_H */

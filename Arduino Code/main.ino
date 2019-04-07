@@ -44,6 +44,7 @@ typedef struct {
 
      // Unstored (temporary) information
      unsigned char tiresRemaining;
+     unsigned char saveSlot;
      unsigned short position;
 } Operation;
 
@@ -75,6 +76,9 @@ typedef enum {
     MSG_P2A_DEBUG_DRIVE_BACKWARD,
     MSG_P2A_DEBUG_STOP,
     MSG_P2A_DEBUG_SENSOR,
+    MSG_P2A_REQUEST_POSITION,
+    MSG_P2A_REQUEST_TIRES_FOUND,
+    MSG_P2A_REQUEST_TIRES_REMAINING,
 
     // Arduino to PIC Messages
     MSG_A2P_DRIVING = 100,
@@ -359,7 +363,7 @@ void setState(STATE newState) {
 
         case RETURNING:
             // Tell PIC that robot is returning (to update LCD)
-            serialCom.write(MSG_RECEIVE_RETURNING);
+            serialCom.write(MSG_A2P_RETURNING);
 
             // Drive motors in reverse
             driveMotors(BACKWARD);
@@ -367,7 +371,7 @@ void setState(STATE newState) {
 
         case COMPLETE:
             // Tell PIC that the robot completed the operation
-            serialCom.write(MSG_RECEIVE_COMPLETE_OP);
+            serialCom.write(MSG_A2P_COMPLETE_OP);
 
             // Send operation data to pic!! (TO DO)
             // for now just reset operation

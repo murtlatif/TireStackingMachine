@@ -8,8 +8,9 @@
 #ifndef CONFIG_BITS_H
 #define CONFIG_BITS_H
 
-#define SUCCESS 1
-#define FAIL 0
+#define UNSUCCESSFUL 0
+#define SUCCESSFUL 1
+
 
 // CONFIG1H
 #pragma config OSC = HSPLL      // Oscillator Selection bits (HS oscillator)

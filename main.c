@@ -1,11 +1,4 @@
-/**
- * @file
- * @author Murtaza Latif
- * 
- * Created on January 12th, 2019, 5:15 PM
- * 
- * Recreated after accidental deletion on February 26th, 2019 at 7:25 PM.
- */
+// MAIN FILE - Murtaza Latif
 
 //** INCLUDES **//
 #include <xc.h>
@@ -17,22 +10,34 @@
 #include "operate.h"
 #include "uart.h"
 
-#include <stdio.h>   Acqxx
+#include <stdio.h>
 #include <stdbool.h>
 
 //** MACROS **//
 #define MAX_TIRE_CAPACITY 15
-#define MOTOR_ERROR_PROPORTIONALITY_CONSTANT 1
+#define RETURN_TO_STANDBY_TIME_SECONDS 15
+
 //** CONSTANTS **//
 
 // Constant values
 static const char keys[] = "123A456B789C*0#D";
-static const Operation EmptyOperation;
+static const Operation EmptyOperation = {
+    .savedIntoLogs = false,
+    .duration = 0,
+    .totalSuppliedTires = 0,
+    .totalNumberOfPoles = 0,
+    .tiresDeployedOnPole = {},
+    .tiresOnPoleAfterOperation = {},
+    .distanceOfPole = {},
+    .tiresRemaining = 0,
+    .position = 0
+};
 
 // Enumerations
 typedef enum {
     ST_STANDBY = 0,
     ST_READY,
+    ST_ERROR,
     ST_OPERATE_START,
     ST_OPERATE_IDLE,
     ST_OPERATE_DRIVING,
@@ -43,18 +48,29 @@ typedef enum {
 } Status;
 
 typedef enum {
+    // Standby
     SC_STANDBY = 0,
+
+    // Main Menu
     SC_MENU,
+    SC_ABOUT,
+
+    // Debug
     SC_DEBUG,
     SC_DEBUG_LOG,
     SC_DEBUG_MOTOR,
     SC_DEBUG_STEPPER,
     SC_DEBUG_SENSOR,
-    SC_ABOUT,
+
+    // Logs
     SC_LOGS_MENU,
     SC_LOGS_VIEW,
     SC_LOAD_TIRES,
+
+    // Operating
     SC_OPERATING,
+
+    // Termination
     SC_TERMINATED,
     SC_VIEW_RESULTS,
     SC_SAVE,
@@ -63,41 +79,53 @@ typedef enum {
     SC_OVERWRITE_LOG_VERIFICATION_2,
     SC_OVERWRITE_LOG_VERIFICATION_3,
     SC_SAVE_COMPLETED,
-    SC_MEMORY_ERROR
+
+    // Errors
+    SC_LOG_VIEW_ERROR,
+    SC_INVALID_STATE_ERROR,
+    SC_INVALID_SCREEN_ERROR,
+    SC_UNHANDLED_ARDUINO_MESSAGE_ERROR,
+    SC_SAVE_OPERATION_ERROR,
+
 } Screen;
 
 typedef enum {
-    MSG_STOP = 0,
-    MSG_START,
-    MSG_RETURN,
-    MSG_DEPLOY_STEPPER,
-    MSG_COMPLETE_OP,
-    MSG_DRIVING,
-    MSG_RETURNING,
-    MSG_DEPLOYMENT_COMPLETE,
-    MSG_DEBUG_DRIVE_FORWARD,
-    MSG_DEBUG_DRIVE_BACKWARD,
-    MSG_DEBUG_STOP,
-    MSG_DEBUG_SENassSOR
-} MSG_CODE;
+    // PIC to Arduino Messages
+    MSG_P2A_STOP = 0,
+    MSG_P2A_START,
+    MSG_P2A_DEPLOYMENT_COMPLETE,
+    MSG_P2A_DEBUG_DRIVE_FORWARD,
+    MSG_P2A_DEBUG_DRIVE_BACKWARD,
+    MSG_P2A_DEBUG_STOP,
+    MSG_P2A_DEBUG_SENSOR,
+    MSG_P2A_REQUEST_POSITION,
+    MSG_P2A_REQUEST_TIRES_FOUND,
+    MSG_P2A_REQUEST_TIRES_REMAINING,
 
+    // Arduino to PIC Messages
+    MSG_A2P_DRIVING = 100,
+    MSG_A2P_DEPLOY_STEPPER,
+    MSG_A2P_COMPLETE_OP,
+    MSG_A2P_RETURNING,
+
+} MSG_CODE;
 //** VARIABLES **//
 
 // State variables
-Status CURRENT_STATUS;
-Screen CURRENT_SCREEN;
-Operation CURRENT_OPERATION;
-unsigned char page;
+Status CURRENT_STATUS;          // Keep track of the current robot status
+Screen CURRENT_SCREEN;          // Keep track of the current LCD screen
+Operation CURRENT_OPERATION;    // To record the operation in progress
+unsigned char page;             // Page number for any page menu LCD
 
 // Interrupt Variables
-volatile bool key_was_pressed = false;
-volatile bool emergency_stop_pressed = false;
-volatile bool receivedMessageFromArduino = false;
-volatile unsigned char messageFromArduino;
-volatile unsigned char key;
+volatile bool key_was_pressed = false;              // Keeps track of whether keypad input was pressed
+volatile bool emergency_stop_pressed = false;       // Keeps track of whether emergency stop was pressed
+volatile bool receivedMessageFromArduino = false;   // Keeps track of whether a message was received from arduino
+volatile unsigned char messageFromArduino;          // Contains the message received from arduino
+volatile unsigned char key;                         // Contains the key pressed from the keypad
 
 // RTC Variables
-char valueToWriteToRTC[7] = {
+char valueToWriteToRTC[7] = {               // The time to initialize to if writing to RTC
     0x00, // Seconds 
     0x10, // Minutes
     0x17, // Hours (set to 24 hour mode)
@@ -106,6 +134,9 @@ char valueToWriteToRTC[7] = {
     0x03, // Month
     0x19  // Year
 };
+
+unsigned short returnToStandbyTick = 0;     // Timer variable (milliseconds) for returning to standby mode
+unsigned char returnToStandbyCounter = 0;   // Timer variable (seconds) for returning to standby mode
 
 
 //** PROTOTYPES **//
@@ -125,6 +156,7 @@ void main(void) {
     // Initialize other variables
 
     // Time Variables
+
     unsigned short drivingTick = 0;
     unsigned char pwmTick = 0;
     unsigned short durationTick = 0;
@@ -163,6 +195,7 @@ void main(void) {
                     key_was_pressed = false;
                     
                 } else {
+                    // Read and display the time while on standby screen
                     readTime(time);
                     displayTime(time);
                 }
@@ -199,14 +232,6 @@ void main(void) {
                     }
 
                     key_was_pressed = false;
-
-                } else {
-                    if (tick == 999) {
-                        counter++;
-                        if (counter == 10) {
-                            setStatus(ST_STANDBY);
-                        }
-                    }
                 }
 
                 break;
@@ -264,9 +289,7 @@ void main(void) {
 
             //===========================================
             case SC_DEBUG_LOG:
-                /*
-                 * 
-                 * [C] Reset Slots
+                /* [C] Reset Slots
                  * [D] Back
                  */
                 
@@ -291,8 +314,8 @@ void main(void) {
 
             //===========================================
             case SC_DEBUG_MOTOR:
-                /* [A] Clockwise
-                 * [B] CounterClockwise
+                /* [A] Forward
+                 * [B] Backward
                  * [C] Off
                  * [D] Back
                  */
@@ -300,17 +323,17 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'A':
-//                            driveDCMotor(BOTH, CLOCKWISE);
+                            // Tell Arduino to drive motors forward
                             UART_Write(MSG_DEBUG_DRIVE_FORWARD);
                             break;
 
                         case 'B':
-//                            driveDCMotor(BOTH, COUNTER_CLOCKWISE);
+                            // Tell Arduino to drive motors backward
                             UART_Write(MSG_DEBUG_DRIVE_BACKWARD);
                             break;
 
                         case 'C':
-//                            driveDCMotor(BOTH, OFF);
+                            // Tell Arduino to stop driving motors
                             UART_Write(MSG_DEBUG_STOP);
                             break;
 
@@ -328,32 +351,18 @@ void main(void) {
 
                     key_was_pressed = false;
                 }
-                
-//                if (pwmTick < onDuty) {
-//                    MOTOR1_IN1 = (pwmDrive == 1);
-//                    MOTOR2_IN1 = (pwmDrive == 1);
-//                    MOTOR1_IN2 = (pwmDrive == 2);
-//                    MOTOR2_IN2 = (pwmDrive == 2);
-//                } else {
-//                    MOTOR1_IN1 = 0;
-//                    MOTOR1_IN2 = 0;
-//                    MOTOR2_IN1 = 0;
-//                    MOTOR2_IN2 = 0;
-//                }
-//                
-//                if (pwmTick == 100) {
-//                    pwmTick = 0;
-//                }
-//                
-//                pwmTick++;
-                
 
                 break;
-                
-            
+
             //===========================================
             case SC_DEBUG_STEPPER:
-                
+                /* [1] 1 Forward
+                 * [3] 1 Back
+                 * [4] Tire Forward
+                 * [6] Tire Back
+                 * [0] Stop
+                 * [D] Return
+                 */
                 if (key_was_pressed) {
                     switch (key) {                        
                         case 'D':
@@ -361,62 +370,29 @@ void main(void) {
                             break;
                             
                         case '1':
-//                            STEPPER_IN1 = 1;
-//                            STEPPER_IN3 = 1;
-//                            STEPPER_IN2 = 0;
-//                            for (char i = 0; i < 200; i ++) {
-//                                STEPPER_IN2 = 1;
-//                                __delay_ms(1);
-//                                STEPPER_IN2 = 0;
-//                                __delay_ms(1);
-//                            }
-                            driveStepper(1, 1);
-                            break;
-                            
-                        case '2':
-//                            STEPPER_IN1 = 0;
-//                            STEPPER_IN3 = 1;
-//                            STEPPER_IN2 = 0;
-//                            for (char i = 0; i < 200; i ++) {
-//                                STEPPER_IN2 = 1;
-//                                __delay_ms(1);
-//                                STEPPER_IN2 = 0;
-//                                __delay_ms(1);
-//                            }
-                            driveStepper(1, 0);
-                            break;
-                            
-                        case '0':
-                            STEPPER_IN1 = 0;
-                            STEPPER_IN2 = 0;
-                            STEPPER_IN3 = 0;
-                            STEPPER_IN4 = 0;
+                            // Drive stepper 1 revolution forward
+                            driveStepper(1, FORWARD);
                             break;
                             
                         case '3':
-                            // STEPPER_IN1 = 1;
-                            // STEPPER_IN3 = 1;
-                            // STEPPER_IN2 = 0;
-                            // for (short i = 0; i < 4000; i ++) {
-                            //     STEPPER_IN2 = 1;
-                            //     __delay_ms(1);
-                            //     STEPPER_IN2 = 0;
-                            //     __delay_ms(1);
-                            // }
-                            driveStepper(24, 1);
+                            // Drive stepper 1 revolution backward
+                            driveStepper(1, BACKWARD);
+                            break;
+                            
+                        case '0':
+                            STEPPER_EN = 0;
+                            STEPPER_DIR = 0;
+                            STEPPER_PULSE = 0;
                             break;
                             
                         case '4':
-                            // STEPPER_IN1 = 0;
-                            // STEPPER_IN3 = 1;
-                            // STEPPER_IN2 = 0;
-                            // for (short i = 0; i < 4000; i ++) {
-                            //     STEPPER_IN2 = 1;
-                            //     __delay_us(600);
-                            //     STEPPER_IN2 = 0;
-                            //     __delay_us(600);
-                            // }
-                            driveStepper(24, 0);
+                            // Make enough revolutions to deploy a tire (forward)
+                            driveStepper(REVOLUTIONS_TO_DROP_ONE_TIRE, FORWARD);
+                            break;
+                            
+                        case '6':
+                            // Make enough revolutions for one tire (backward)
+                            driveStepper(REVOLUTIONS_TO_DROP_ONE_TIRE, BACKWARD);
                             break;
                             
                         default:
@@ -429,19 +405,23 @@ void main(void) {
                 
             //===========================================
             case SC_DEBUG_SENSOR:
-                /* Distance:  ###mm
-                 * 
-                 * [C] Read Sensor
+                /* [C] Read Sensor
                  * [D] Back
                  */
                 if (key_was_pressed) {
                     switch (key) {
+
                         case 'C':
+                            // Print first two lines of screen
                             lcd_home();
                             printf("Reading distance");
                             lcd_set_ddram_addr(LCD_LINE2_ADDR);
                             printf("                ");
-                            sensorReading = UART_Request_Data(MSG_DEBUG_SENSOR);
+
+                            // Retrieve sensor data from Arduino
+                            sensorReading = UART_Request_Byte(MSG_DEBUG_SENSOR);
+
+                            // Write sensor data to LCD
                             lcd_home();
                             if (sensorReading) {
                                 printf("Distance:  %03dmm", sensorReading);
@@ -467,7 +447,6 @@ void main(void) {
             case SC_LOGS_MENU:
                 /* [A] View Logs
                  * [B] Download
-                 * 
                  * [D] Back
                  */
                 if (key_was_pressed) {
@@ -503,6 +482,7 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case '*':
+                            // Go to the previous page
                             if (page > 0) {
                                 page--;
                                 refreshScreen();
@@ -510,10 +490,12 @@ void main(void) {
                             break;
 
                         case '0':
+                            // Return to the logs menu
                             setScreen(SC_LOGS_MENU);
                             break;
 
                         case '#':
+                            // Go to the next page
                             if (page < 5) {
                                 page++;
                                 refreshScreen();
@@ -521,37 +503,40 @@ void main(void) {
                             break;
 
                         case 'A':
-                            if (getLogSlot(page * 3) == USED) {
-                                if (getCondensedOperationFromLogs(CURRENT_OPERATION, (page * 3)) == FAIL) {
-                                    setScreen(SC_MEMORY_ERROR);
-                                } else {
-                                    unpackCondensedOperation(CURRENT_OPERATION);
+                            // View operation from log slot A
+                            if (getLogSlot(page * 3) == SLOT_USED) {
+                                if (getOperationFromLogs(&CURRENT_OPERATION, (page * 3)) == SUCCESSFUL) {
                                     page = 0;
                                     setScreen(SC_VIEW_RESULTS);
+                                } else {
+                                    setStatus(ST_ERROR);
+                                    setScreen(SC_LOG_VIEW_ERROR);
                                 }
                             }
                             break;
 
                         case 'B':
-                            if (page < 5 && getLogSlot((page * 3) + 1) == USED) {
-                                if (getCondensedOperationFromLogs(CURRENT_OPERATION, ((page * 3) + 1)) == FAIL) {
-                                    setScreen(SC_MEMORY_ERROR);
-                                } else {
-                                    unpackCondensedOperation(CURRENT_OPERATION);
+                            // View operation from log slot B
+                            if ((getLogSlot(page * 3) + 1) == SLOT_USED) {
+                                if (getOperationFromLogs(&CURRENT_OPERATION, (page * 3) + 1) == SUCCESSFUL) {
                                     page = 0;
                                     setScreen(SC_VIEW_RESULTS);
+                                } else {
+                                    setStatus(ST_ERROR);
+                                    setScreen(SC_LOG_VIEW_ERROR);
                                 }
                             }
                             break;
 
                         case 'C':
-                            if (page < 5 && getLogSlot((page * 3) + 2) == USED) {
-                                if (getCondensedOperationFromLogs(CURRENT_OPERATION, ((page * 3) + 2)) == FAIL) {
-                                    setScreen(SC_MEMORY_ERROR);
-                                } else {
-                                    unpackCondensedOperation(CURRENT_OPERATION);
+                            // View operation from log slot C
+                            if ((getLogSlot(page * 3) + 2) == SLOT_USED) {
+                                if (getOperationFromLogs(&CURRENT_OPERATION, (page * 3) + 2) == SUCCESSFUL) {
                                     page = 0;
                                     setScreen(SC_VIEW_RESULTS);
+                                } else {
+                                    setStatus(ST_ERROR);
+                                    setScreen(SC_LOG_VIEW_ERROR);
                                 }
                             }
                             break;
@@ -577,6 +562,7 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case '#':
+                            // Increase the number of tires loaded
                             if (loadedTires < MAX_TIRE_CAPACITY) {
                                 loadedTires++;
                                 refreshScreen();
@@ -585,6 +571,7 @@ void main(void) {
                             break;
                             
                         case '*':
+                            // Decrease the number of tires loaded
                             if (loadedTires > 0) {
                                 loadedTires--;
                                 refreshScreen();
@@ -593,6 +580,7 @@ void main(void) {
                             break;
                             
                         case 'C':
+                            // Start the operation with desired amount of tires
                             setStatus(ST_OPERATE_START);
                             CURRENT_OPERATION.tiresRemaining = loadedTires;
                             loadedTires = MAX_TIRE_CAPACITY;
@@ -616,28 +604,8 @@ void main(void) {
             case SC_OPERATING:
                 if (key_was_pressed) {
                     switch (key) {
-                        case '1':
-                            // UART_Transmit_Yield(MSG_START);
-                            UART_Write(MSG_START);
-                            break;
-
-                        case '2':
-                            // UART_Transmit_Yield(MSG_STOP);
-                            UART_Write(MSG_STOP);
-                            break;
-
-                        case '3':
-//                            if (RCIF && RCIE) {
-//                                lcd_home();
-//                                printf("dist:        %03d", RCREG);
-//                                RCIF = 0;
-//                            }
-                            UART_Write(MSG_RETURN);
-                            break;
-                            
                         case 'D':
-                            // setStatus(ST_COMPLETED_OP);
-                            setStatus(ST_READY);
+                            UART_Write(MSG_STOP);
                             break;
 
                         default:
@@ -646,196 +614,64 @@ void main(void) {
  
                     key_was_pressed = false;
                 }
-                
-                __delay_us(500);
 
+                // Listen for messages from the Arduino
                 if (UART_Data_Ready()) {
                     messageFromArduino = UART_Read();
+
                     switch (messageFromArduino) {
-                        case MSG_DRIVING:
-                            lcd_home();
-                            printf("   DRIVING...   ");
-                            lcd_set_ddram_addr(LCD_LINE2_ADDR);
-                            currentPos = UART_Read();
+
+
+                        case MSG_A2P_DRIVING:
+                        // Set the status of the robot to driving and refresh the screen
+                            setStatus(ST_OPERATE_DRIVING);
+                            refreshScreen();
                             break;
 
-                        case MSG_RETURNING:
-                            lcd_home();
-                            printf("  RETURNING...  ");
+                        case MSG_A2P_RETURNING:
+                        // Set the status of the robot to returning and refresh the screen
+                            setStatus(ST_OPERATE_RETURN);
+                            refreshScreen();
                             break;
 
-                        case MSG_DEPLOY_STEPPER:
-                            lcd_home();
-                            printf(" DEPLOY STEPPER ");
-                            driveStepper(24, 1);
-                            UART_Write(MSG_DEPLOYMENT_COMPLETE);
+                        case MSG_A2P_DEPLOY_STEPPER:
+                        // Set the status to deploying a tire
+                            setStatus(ST_OPERATE_DEPLOYING_TIRE);
                             break;
 
-                        case MSG_COMPLETE_OP:
+                        case MSG_A2P_COMPLETE_OP:
+                        // Complete the operation on the robot
                             setStatus(ST_COMPLETED_OP);
                             break;
 
                         default:
-                            lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                        // Invalid arduino message, throw error
+                            setStatus(ST_ERROR);
+                            setScreen(SC_UNHANDLED_ARDUINO_MESSAGE_ERROR);
+
+                            lcd_set_ddram_addr(LCD_LINE3_ADDR);
                             printf("%X", messageFromArduino);
                             break;
                     }
                 }
-                
-                /*
-                switch (getStatus()) {
-                    case ST_OPERATE_START:
-                        durationTick = 0;
-                        drivingTick = 0;
-                        stepperTick = 0;
-                        setStatus(ST_OPERATE_DRIVING);
-                        
-                        break;
 
-                    case ST_OPERATE_DRIVING:
-                        // Return to the start line if reached max distance or found max number of poles
-                        if ((CURRENT_OPERATION.position >= 400) || CURRENT_OPERATION.totalNumberOfPoles >= 10) {
-                            setStatus(ST_OPERATE_RETURN);
-
-                        // Give a buffer distance before beginning detecting poles again
-                        } else if (CURRENT_OPERATION.position - CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] > SAME_POLE_REGION) {
-                            if (pole_found) {
-                                CURRENT_OPERATION.totalNumberOfPoles++;
-                                CURRENT_OPERATION.distanceOfPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.position;
-                                CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1] = getNumberOfTiresOnPole();
-                                CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1] = 0;
-                                setStatus(ST_OPERATE_POLE_DETECTED);
-                                refreshScreen();
-                            } else {
-                                if (readSensor() <= POLE_DETECTED_RANGE) {
-                                    bool consistentOutput = true;
-                                    for (char i = 0; i < SENSOR_VERIFICATION_TRIES; i++) {
-                                        if (readSensor() > POLE_DETECTED_RANGE) {
-                                            consistentOutput = false;
-                                        }
-                                    }
-
-                                    if (consistentOutput) {
-                                        pole_found = true;
-                                    }
-                                }
-                            }
-                        }
-
-                        drivingTick++;
-                        if (drivingTick % 10 == 0) {
-                            // ADJUSTING SPEED TO HAVE STRAIGHT DRIVING
-                            // unsigned char error = getEncoderValue(MOTOR1) - getEncoderValue(MOTOR2);
-                            // use error to set new speed
-                            // speed = error / MOTOR_ERROR_PROPORTIONALITY_CONSTANT;
-
-                            // MEASURING DISTANCE
-                            // CURRENT_OPERATION.position += getEncoderValue(MASTER) * someFloatConstant
-
-                        }
-
-                        if (drivingTick == 100) {
-                            CURRENT_OPERATION.position++;
-                            drivingTick = 0;
-                            refreshScreen();
-                        }
-                        
-                        break;
-
-                    case ST_OPERATE_POLE_DETECTED:
-//                        CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1] = getNumberOfTiresOnPole();
-                        CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1] = CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1];
-                        // Deploy tire if tire required on pole
-                        if (getNumberOfTiresRequiredForPole(CURRENT_OPERATION) > CURRENT_OPERATION.tiresOnPoleAfterOperation[CURRENT_OPERATION.totalNumberOfPoles - 1]) {
-                            if (CURRENT_OPERATION.tiresRemaining == 0) {
-                                setStatus(ST_OPERATE_RETURN);
-                                refreshScreen();
-                            } else {
-                                stepperTick = 0;
-                                stepsRemaining = STEPS_FOR_ONE_REVOLUTION;
-                                setStatus(ST_OPERATE_DEPLOYING_TIRE);
-                                refreshScreen();
-                            }
-                        } else {
-                        // Continue driving if no more tires required
-                            if (CURRENT_OPERATION.totalNumberOfPoles == 10) {
-                                // Drive back to start if this pole was the 10th pole
-                                drivingTick = 100 - drivingTick;
-                                setStatus(ST_OPERATE_RETURN);
-                                refreshScreen();
-                            } else {
-                                setStatus(ST_OPERATE_DRIVING);
-                                refreshScreen();
-                            }
-                        }
-                        
-                        pole_found = false;
-                        break;
-
-                    case ST_OPERATE_DEPLOYING_TIRE:
-                        // Step stepper every 2 ms
-                        stepperTick++;
-                        if (stepperTick == 2) {
-                            
-                            stepStepper(step);
-                            
-                            // Rotate clockwise
-                            if (step == 3) {
-                                step = 0;
-                            } else {
-                                step++;
-                            }
-                            
-                            stepsRemaining--;
-                            stepperTick = 0;
-                            
-                            if (stepsRemaining == 0) {
-                                CURRENT_OPERATION.totalSuppliedTires++;
-                                CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1]++;
-                                CURRENT_OPERATION.tiresRemaining--;
-                                setStatus(ST_OPERATE_POLE_DETECTED);
-                                refreshScreen();
-                            }
-                        }
-                        break;
-
-                    case ST_OPERATE_RETURN:
-                        if (CURRENT_OPERATION.position == 0) {
-                            setStatus(ST_COMPLETED_OP);
-                        } else if (drivingTick == 100) {
-                            CURRENT_OPERATION.position--;
-                            drivingTick = 0;
-                            refreshScreen();
-                        }
-
-                        drivingTick++;
-
-                    default:
-                        break;
-                }
-
-                durationTick++;
-                
-                if (durationTick == 1000) {
-                    durationTick = 0;
-                    CURRENT_OPERATION.duration++;
-                }*/
-                
                 break;
             
             //=============STATUS: COMPLETED=============
             case SC_TERMINATED:
-                /* [B] View Results
-                 * [C] Finish Op.
+                /* [C] View Results
+                 * [D] Finish Op.
                  */
                 if (key_was_pressed) {
                     switch (key) {
-                        case 'B':
+                        case 'C':
+                            // View the results of the operation
                             page = 0;
                             setScreen(SC_VIEW_RESULTS);
                             break;
 
-                        case 'C':
+                        case 'D':
+                            // Prompt the user to save
                             setScreen(SC_SAVE);
                             break;
 
@@ -844,7 +680,8 @@ void main(void) {
                     }
  
                     key_was_pressed = false;
-                } 
+
+                }
                 break;
 
             //===========================================
@@ -854,6 +691,7 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case '*':
+                            // Go to the previous page
                             if (page > 0) {
                                 page--;
                                 refreshScreen();
@@ -861,6 +699,7 @@ void main(void) {
                             break;
 
                         case '0':
+                            // Return to the previous screen
                             if (getStatus() == ST_READY) {
                                 page = 0;
                                 setScreen(SC_LOGS_VIEW);
@@ -870,6 +709,7 @@ void main(void) {
                             break;
 
                         case '#':
+                            // Go to the next page
                             if (page < (CURRENT_OPERATION.totalNumberOfPoles + 1)) {
                                 page++;
                                 refreshScreen();
@@ -894,15 +734,18 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'B':
+                            // Go to save selection screen
                             page = 0;
                             setScreen(SC_SELECT_SAVE_SLOT);
                             break;
 
                         case 'C':
+                            // Return to main menu
                             setStatus(ST_READY);
                             break;
 
                         case 'D':
+                            // Go back to termination screen
                             setScreen(SC_TERMINATED);
                             break;
                             
@@ -916,8 +759,7 @@ void main(void) {
 
             //===========================================
             case SC_SELECT_SAVE_SLOT:
-                /*
-                 * [A] Slot #<1, 4, 7, 10, 13, 16>
+                /* [A] Slot #<1, 4, 7, 10, 13, 16>
                  * [B] Slot #<2, 5, 8, 11, 14>
                  * [C] Slot #<3, 6, 9, 12, 15>
                  * <[*] BCK[0] [#]>
@@ -925,6 +767,7 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case '*':
+                            // Go to the previous page
                             if (page > 0) {
                                 page--;
                                 refreshScreen();
@@ -932,46 +775,66 @@ void main(void) {
                             break;
 
                         case '0':
+                            // Return to the save screen
                             setScreen(SC_SAVE);
                             break;
 
                         case '#':
-                            if (page < 5) {
+                            // Go to the next page
+                            if (page < ((MAX_LOGS - 1) / 2)) {
                                 page++;
                                 refreshScreen();
                             }
                             break;
 
                         case 'A':
-                            if (getLogSlot(page * 3) == USED) {
+                            // Save into the first row slot
+                            if (getLogSlot(page * 3) == SLOT_USED) {
+                                // If the slot is used, prompt user for verification to overwrite
                                 setScreen(SC_OVERWRITE_LOG_VERIFICATION_1);
                             } else {
-                                storeCondensedOperation(CURRENT_OPERATION);
-                                saveCondensedOperationIntoLogs(page * 3, CURRENT_OPERATION);
-                                CURRENT_OPERATION.savedSlot = (page * 3) + 1;
-                                setScreen(SC_SAVE_COMPLETED);
+                                // Try to save the operation into the logs and throw an error if failed
+                                if (storeOperationIntoLogs(CURRENT_OPERATION, page * 3) == UNSUCCESSFUL) {
+                                    setState(ST_ERROR);
+                                    setScreen(SC_SAVE_OPERATION_ERROR);
+                                } else {
+                                    CURRENT_OPERATION.saveSlot = (page * 3) + 1;
+                                    setScreen(SC_SAVE_COMPLETED);
+                                }
                             }
                             break;
 
                         case 'B':
-                            if (getLogSlot((page * 3) + 1) == USED) {
+                            // Save into the second row slot
+                            if (getLogSlot((page * 3) + 1) == SLOT_USED) {
+                                // If the slot is used, prompt user for verification to overwrite
                                 setScreen(SC_OVERWRITE_LOG_VERIFICATION_2);
                             } else {
-                                storeCondensedOperation(CURRENT_OPERATION);
-                                saveCondensedOperationIntoLogs((page * 3) + 1, CURRENT_OPERATION);
-                                CURRENT_OPERATION.savedSlot = (page * 3) + 2;
-                                setScreen(SC_SAVE_COMPLETED);
+                                // Try to save the operation into the logs and throw an error if failed
+                                if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 1) == UNSUCCESSFUL) {
+                                    setState(ST_ERROR);
+                                    setScreen(SC_SAVE_OPERATION_ERROR);
+                                } else {
+                                    CURRENT_OPERATION.saveSlot = (page * 3) + 2;
+                                    setScreen(SC_SAVE_COMPLETED);
+                                }
                             }
                             break;
 
                         case 'C':
-                            if (getLogSlot((page * 3) + 2) == USED) {
+                            // Save into the third row slot
+                            if (getLogSlot((page * 3) + 2) == SLOT_USED) {
+                                // If the slot is used, prompt user for verification to overwrite
                                 setScreen(SC_OVERWRITE_LOG_VERIFICATION_3);
                             } else {
-                                storeCondensedOperation(CURRENT_OPERATION);
-                                saveCondensedOperationIntoLogs((page * 3) + 2, CURRENT_OPERATION);
-                                CURRENT_OPERATION.savedSlot = (page * 3) + 3;
-                                setScreen(SC_SAVE_COMPLETED);
+                                // Try to save the operation into the logs and throw an error if failed
+                                if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 2) == UNSUCCESSFUL) {
+                                    setState(ST_ERROR);
+                                    setScreen(SC_SAVE_OPERATION_ERROR);
+                                } else {
+                                    CURRENT_OPERATION.saveSlot = (page * 3) + 3;
+                                    setScreen(SC_SAVE_COMPLETED);
+                                }
                             }
                             break;
 
@@ -992,15 +855,17 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'C':
+                            // Return to save slot selection screen
                             setScreen(SC_SELECT_SAVE_SLOT);
                             break;
 
                         case 'D':
-                            storeCondensedOperation(CURRENT_OPERATION);
-                            if((saveCondensedOperationIntoLogs(page * 3, CURRENT_OPERATION)) == FAIL) {
-                                setScreen(SC_MEMORY_ERROR);
+                            // Try to save the operation into the logs and throw an error if failed
+                            if (storeOperationIntoLogs(CURRENT_OPERATION, page * 3) == UNSUCCESSFUL) {
+                                setState(ST_ERROR);
+                                setScreen(SC_SAVE_OPERATION_ERROR);
                             } else {
-                                CURRENT_OPERATION.savedSlot = (page * 3) + 1;
+                                CURRENT_OPERATION.saveSlot = (page * 3) + 1;
                                 setScreen(SC_SAVE_COMPLETED);
                             }
                             break;
@@ -1021,15 +886,17 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'C':
+                            // Return to save slot selection screen
                             setScreen(SC_SELECT_SAVE_SLOT);
                             break;
 
                         case 'D':
-                            storeCondensedOperation(CURRENT_OPERATION);
-                            if((saveCondensedOperationIntoLogs((page * 3) + 1, CURRENT_OPERATION)) == FAIL) {
-                                setScreen(SC_MEMORY_ERROR);
+                            // Try to save the operation into the logs and throw an error if failed
+                            if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 1) == UNSUCCESSFUL) {
+                                setState(ST_ERROR);
+                                setScreen(SC_SAVE_OPERATION_ERROR);
                             } else {
-                                CURRENT_OPERATION.savedSlot = (page * 3) + 2;
+                                CURRENT_OPERATION.saveSlot = (page * 3) + 2;
                                 setScreen(SC_SAVE_COMPLETED);
                             }
                             break;
@@ -1050,15 +917,17 @@ void main(void) {
                 
                 switch (key) {
                         case 'C':
+                            // Return to save slot selection screen
                             setScreen(SC_SELECT_SAVE_SLOT);
                             break;
 
                         case 'D':
-                            storeCondensedOperation(CURRENT_OPERATION);
-                            if((saveCondensedOperationIntoLogs((page * 3) + 2, CURRENT_OPERATION)) == FAIL) {
-                                setScreen(SC_MEMORY_ERROR);
+                            // Try to save the operation into the logs and throw an error if failed
+                            if (storeOperationIntoLogs(CURRENT_OPERATION, (page * 3) + 2) == UNSUCCESSFUL) {
+                                setState(ST_ERROR);
+                                setScreen(SC_SAVE_OPERATION_ERROR);
                             } else {
-                                CURRENT_OPERATION.savedSlot = (page * 3) + 3;
+                                CURRENT_OPERATION.saveSlot = (page * 3) + 3;
                                 setScreen(SC_SAVE_COMPLETED);
                             }
                             break;
@@ -1089,14 +958,15 @@ void main(void) {
                 } 
                 break;
             
-            //===========================================
-            case SC_MEMORY_ERROR:
-                /* [D] Back
+            //============= STATUS: ERROR ===============
+            case SC_LOG_VIEW_ERROR:
+                /* [D] OK
                  */
 
                 if (key_was_pressed) {
                     switch (key) {
                         case 'D':
+                            // Return to the main menu
                             setStatus(ST_READY);
                             break;
 
@@ -1109,6 +979,84 @@ void main(void) {
                 break;
 
             //===========================================
+            case SC_INVALID_STATE_ERROR:
+                /* [D] OK
+                 */
+
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            // Return to the main menu
+                            setStatus(ST_READY);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                } 
+                break;
+
+            //===========================================
+            case SC_INVALID_SCREEN_ERROR:
+                /* [D] OK
+                 */
+
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            // Return to the main menu
+                            setStatus(ST_READY);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                } 
+                break;
+
+            //===========================================
+            case SC_UNHANDLED_ARDUINO_MESSAGE_ERROR:
+                /* [D] OK
+                 */
+
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            // Return to the main menu
+                            setStatus(ST_READY);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                } 
+                break;
+            //===========================================
+            case SC_SAVE_OPERATION_ERROR:
+                /* [D] OK
+                 */
+
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            // Return to the operation complete screen
+                            setStatus(ST_COMPLETED_OP);
+                            break;
+
+                        default:
+                            break;
+                    }
+ 
+                    key_was_pressed = false;
+                } 
+                break;
+            //===========================================
             default:
                 break;
         }
@@ -1116,6 +1064,22 @@ void main(void) {
         // 1ms delay for every iteration
         __delay_ms(1);
         tick++;
+
+        if (getStatus() == ST_READY) {
+            // Increment timer for returning to standby while in any menu state
+            returnToStandbyTick++;
+            if (returnToStandbyTick == 1000) {
+                returnToStandbyTick = 0;
+
+                returnToStandbyCounter++;
+
+                if (returnToStandbyCounter == RETURN_TO_STANDBY_TIME_SECONDS) {
+                    // After RETURN_TO_STANDBY_TIME_SECONDS, return to Standby status
+                    returnToStandbyCounter = 0;
+                    setStatus(ST_STANDBY);
+                }
+            }
+        }
         
         if (tick == 1000) {
             // This occurs every second
@@ -1127,28 +1091,14 @@ void main(void) {
 //===================== FUNCTIONS =====================//
 // State functions
 void initialize(void) {
-    
-    // C0, C1 = DC Motor 1
-    TRISCbits.TRISC0 = 0;
-    TRISCbits.TRISC1 = 0;
-    LATCbits.LATC0 = 0;
-    LATCbits.LATC1 = 0;
 
-    // A0, A1 = DC Motor 2
-    TRISAbits.TRISA0 = 0;
-    TRISAbits.TRISA1 = 0;
-    LATAbits.LATA0 = 0;
-    LATAbits.LATA1 = 0;
-
-    // E0, E1, A4, A5 = Stepper Motor
+    // E0, E1, A4 = Stepper Motor
     TRISEbits.TRISE0 = 0;
     TRISEbits.TRISE1 = 0;
     TRISAbits.TRISA4 = 0;
-    TRISAbits.TRISA5 = 0;
     LATEbits.LATE0 = 0;
     LATEbits.LATE1 = 0;
     LATAbits.LATA4 = 0;
-    LATAbits.LATA5 = 0;
 
     // RD2 is the character LCD RS
     // RD3 is the character LCD enable (E)
@@ -1163,8 +1113,8 @@ void initialize(void) {
     INT1E= 1;
     
     // Enable RB0 (emergency stop) interrupt
-    INT2IE = 1;
-
+    INT0E = 1;
+    
     // Enable RC7 (RX) interrupt
     RCIE = 1;
     
@@ -1173,35 +1123,9 @@ void initialize(void) {
     
     // Initialize UART
     UART_Init(9600);
-    // // Configure the baud rate generator for 9600 bits per second
-    // long baudRate = 9600;
-    // SPBRG = (unsigned char)((_XTAL_FREQ / (64 * baudRate)) - 1);
-    
-    // // Configure transmit control register
-    // TXSTAbits.TX9 = 0; // Use 8-bit transmission (8 data bits, no parity bit)
-    // TXSTAbits.SYNC = 0; // Asynchronous communication
-    // TXSTAbits.TXEN = 1; // Enable transmitter
-    // __delay_ms(5); // Enabling the transmitter requires a few CPU cycles for stability
-    
-    // // Configure receive control register
-    // RCSTAbits.RX9 = 0; // Use 8-bit reception (8 data bits, no parity bit)
-    // RCSTAbits.CREN = 1; // Enable receiver
-    
-    // // Enforce correct pin configuration for relevant TRISCx
-    // TRISCbits.TRISC6 = 0; // TX = output
-    // TRISCbits.TRISC7 = 1; // RX = input
-   
-    // // Enable serial peripheral
-    // RCSTAbits.SPEN = 1;
-    
-//    // Initialize I2C Master with 100 kHz clock
-//    // Write the address of the slave device, that is, the Arduino Nano. Note
-//    // that the Arduino Nano must be configured to be running as a slave with
-//    // the same address given here.
+
+   // Initialize I2C Master with 100 kHz clock
     I2C_Master_Init(100000); 
-    I2C_Master_Start();
-    I2C_Master_Write(0b00010000); // 7-bit Arduino slave address + write
-    I2C_Master_Stop();
 
     // Enable interrupts
     ei();
@@ -1220,10 +1144,8 @@ Status getStatus(void) {
 void setStatus(Status newStatus) {
     // Sets the new status and performs an initial function
 
-    // Turn off motors if not driving
-    if (newStatus != ST_OPERATE_DRIVING || newStatus != ST_OPERATE_RETURN) {
-        driveDCMotor(BOTH, OFF);
-    }
+    // Update the status
+    CURRENT_STATUS = newStatus;
 
     switch (newStatus) {
         case ST_STANDBY:
@@ -1234,6 +1156,14 @@ void setStatus(Status newStatus) {
         case ST_READY:
         // Status to navigate robot menus
             setScreen(SC_MENU);
+
+            // Disable emergency_stop_pressed flag
+            emergency_stop_pressed = false;
+            break;
+
+        case ST_ERROR:
+        // Status when an error occurs (prevents screen from automatically returning over time)
+            // do nothing
             break;
 
         case ST_OPERATE_START:
@@ -1246,47 +1176,45 @@ void setStatus(Status newStatus) {
             for (char i = 0; i < 5; i++) {
                 CURRENT_OPERATION.startTime[i] = condensedTime[i];
             }
-            CURRENT_OPERATION.duration = 0;
-            CURRENT_OPERATION.position = 0;
-            CURRENT_OPERATION.totalNumberOfPoles = 0;
-            CURRENT_OPERATION.totalSuppliedTires = 0;
 
             setScreen(SC_OPERATING);
             break;
 
         case ST_OPERATE_DRIVING:
-        // Status used to drive the robot by powering the motors
-            driveDCMotor(BOTH, CLOCKWISE);
-            
+        // Status used while the robot is driving/scanning for poles
+            // do nothing
             break;
 
         case ST_OPERATE_POLE_DETECTED:
-            
+        // Status used when a pole is detected
+            // do nothing
             break;
 
         case ST_OPERATE_DEPLOYING_TIRE:
-        // Robot deploys pole
+        // Robot is deploying a tire using the stepper motor
+            // drive the stepper motor forward
+            driveStepper(REVOLUTIONS_TO_DROP_ONE_TIRE, FORWARD);
 
+            // tell arduino that deployment was completed
+            UART_Write(MSG_DEPLOYMENT_COMPLETE);
             break;
 
         case ST_OPERATE_RETURN:
-        // Robot returns back to the start
-            driveDCMotor(BOTH, COUNTER_CLOCKWISE);
+        // Status used when the robot is returning to the start
+        // do nothing
             break;
 
         case ST_COMPLETED_OP:
-        // Robot completes operation
+        // Status used when the operation is completed
             setScreen(SC_TERMINATED);
             break;
 
-
         default:
-            // Return the function to not set the state if not a valid status
-            return;
+        // For an invalid state, throw an error
+            setState(ST_ERROR);
+            setScreen(SC_INVALID_SCREEN_ERROR)
             break;
     }
-    
-    CURRENT_STATUS = newStatus;
 }
 
 // Screen functions
@@ -1296,6 +1224,15 @@ Screen getScreen(void) {
 
 void setScreen(Screen newScreen) {
     // Sets the new screen and performs an initial function
+
+    CURRENT_SCREEN = newScreen;
+
+    if (getStatus() == ST_READY) {
+        // Refresh returnToStandby timers when screen changes
+        returnToStandbyTick = 0;
+        returnToStandbyCounter = 0;
+    }
+
     switch (newScreen) {
         case SC_STANDBY:
         // Standby screen. Time / date displays here
@@ -1324,42 +1261,48 @@ void setScreen(Screen newScreen) {
         case SC_LOGS_MENU:
         // Navigation menu for logs
             displayPage("[A] View Logs   ",
-                        "[B] Download    ",
+                        "[B] UNAVAILABLE ",
                         "                ",
                         "[D] Back        ");
             break;
 
         case SC_LOGS_VIEW:
-        // Menu to view all the logs
-        displayMenuPage("                ",
-                        "                ",
-                        "                ",
-                        page > 0, page < 5);
+            // Menu to view all the logs
+            displayMenuPage("                ",
+                            "                ",
+                            "                ",
+                            page > 0, page < (MAX_LOGS - 1) / 3);
 
-        // First row of slots
-        lcd_set_ddram_addr(LCD_LINE1_ADDR);
-        if (getLogSlot(page * 3) == USED) {
+            // First row of slots
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+
             // Display whether the slot is taken or not
-            printf("[A] Slot %02d     ", (page * 3) + 1);
-        } else {
-            printf("Slot %02d is empty", (page * 3) + 1);
-        }
-        if (page < 5) {
+            if (getLogSlot(page * 3) == SLOT_USED) {
+                printf("[A] Slot %02d     ", (page * 3) + 1);
+            } else {
+                printf("Slot %02d is empty", (page * 3) + 1);
+            }
+
             // Second row of slots
             lcd_set_ddram_addr(LCD_LINE2_ADDR);
-            if (getLogSlot((page * 3) + 1) == USED) {
+
+            // Display whether the slot is taken or not
+            if (getLogSlot((page * 3) + 1) == SLOT_USED) {
                 printf("[B] Slot %02d     ", (page * 3) + 2);
             } else {
                 printf("Slot %02d is empty", (page * 3) + 2);
             }
+
             // Third row of slots
             lcd_set_ddram_addr(LCD_LINE3_ADDR);
-            if (getLogSlot((page * 3) + 2) == USED) {
+
+            // Display whether the slot is taken or not
+            if (getLogSlot((page * 3) + 2) == SLOT_USED) {
                 printf("[C] Slot %02d     ", (page * 3) + 3);
             } else {
                 printf("Slot %02d is empty", (page * 3) + 3);
             }
-        }
+
         break;
             
         case SC_DEBUG:
@@ -1377,28 +1320,32 @@ void setScreen(Screen newScreen) {
                         "[C] Reset Slots ",
                         "[D] Back        ");
 
+            // Display the number of log slots available
             lcd_set_ddram_addr(LCD_LINE1_ADDR);
-            printf("Logs: %d", getSlotsUsed());
+            printf("Slots Open:    %01d", getSlotsAvailable());
+
+            // Display the slots taken
             lcd_set_ddram_addr(LCD_LINE2_ADDR);
             for (char i = 0; i < 16; i++) {
-                printf("%c", getLogSlot(i) == USED ? '1' : '0');
+                printf("%c", getLogSlot(i) == SLOT_USED ? '1' : '0');
             }
+
             break;
             
         case SC_DEBUG_MOTOR:
         // Motor debug menu
-            displayPage("[A] Drive CW    ",
-                        "[B] Drive CCW   ",
-                        "[C] OFF         ",
-                        "[D] Back        ");
+            displayPage("[A] Forward     ",
+                        "[B] Backward    ",
+                        "[C] Off         ",
+                        "[D] Return      ");
             break;
             
         case SC_DEBUG_STEPPER:
         // Stepper debug menu
-            displayPage("[A] Send step   ",
-                        "[B] Step++      ",
-                        "[C] Step--      ",
-                        "[D] Back        ");
+            displayPage("[1] 1 Forward   ",
+                        "[3] 1 Back      ",
+                        "[4] Tire Forward",
+                        "[6] Tire Back   ");
             break;
 
         case SC_DEBUG_SENSOR:
@@ -1425,39 +1372,48 @@ void setScreen(Screen newScreen) {
                         "[D] EMRGNCY STOP");
 
             lcd_set_ddram_addr(LCD_LINE1_ADDR);
+
+            // Display something based on the status
             switch (getStatus()) {
                 case ST_OPERATE_START:
                     printf(" Starting op... ");
                     break;
 
                 case ST_OPERATE_DRIVING:
+                    // Display position while driving
                     printf("    DRIVING     ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
-                    printf("Position:    %03d", CURRENT_OPERATION.position);
-                    lcd_set_ddram_addr(LCD_LINE3_ADDR);
-                    printf("Poles found:  %02d", CURRENT_OPERATION.totalNumberOfPoles);
+
+                    // Request and print the position from the Arduino onto the LCD
+                    printf("Position:    %03d", UART_Request_Short(MSG_P2A_REQUEST_POSITION));
                     break;
 
                 case ST_OPERATE_POLE_DETECTED:
+                    // Display message while pole is detected`
                     printf(" POLE DETECTED  ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
-                    printf("Tires Found:  %02d", CURRENT_OPERATION.tiresOnPoleAfterOperation);
-                    lcd_set_ddram_addr(LCD_LINE3_ADDR);
-                    printf("Tires Stacked: %01d", CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles - 1]);
+
+                    // Request and print the number of tires found from the Arduino onto the LCD
+                    printf("Tires Found:  %02d", UART_Request_Byte(MSG_P2A_REQUEST_TIRES_FOUND);
+
                     break;
 
                 case ST_OPERATE_DEPLOYING_TIRE:
+                    // Display tires remaining while robot is deploying
                     printf(" DEPLOYING TIRE ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
-                    printf("Tire Ammo:    %02d", CURRENT_OPERATION.tiresRemaining);
-                    lcd_set_ddram_addr(LCD_LINE3_ADDR);
-                    printf("Tires Stacked: %01d", CURRENT_OPERATION.tiresDeployedOnPole[CURRENT_OPERATION.totalNumberOfPoles]);
+
+                    // Request and print the number of tires remaining on the robot
+                    printf("Tire Ammo:    %02d", UART_Request_Byte(MSG_P2A_REQUEST_TIRES_REMAINING));
                     break;
                     
                 case ST_OPERATE_RETURN:
+                    // Display the position while returning
                     printf("    RETURNING   ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
-                    printf("Position:    %03d", CURRENT_OPERATION.position);
+
+                    // Request and print the position from the Arduino onto the LCD
+                    printf("Position:    %03d", UART_Request_Short(MSG_P2A_REQUEST_POSITION));
                     break;
                     
                 default:
@@ -1467,39 +1423,63 @@ void setScreen(Screen newScreen) {
 
         case SC_TERMINATED:
         // Termination screen when the operation is complete
-            displayPage(" Operation Done ",
-                        "[B] View Results",
-                        "[C] Finish Op.  ",
-                        "                ");
+            displayPage("                ",
+                        "                ",
+                        "[C] View Results",
+                        "[D] Finish Op.  ");
+
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+
+            // Display a termination message dependant on whether the emergency stop was pressed
+            if (emergency_stop_pressed) {
+                printf(" Op. Terminated ");
+                lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                printf("EMERGNCY STOPPED");
+            } else {
+                printf(" Op. Completed  ");
+            }
+
             break;
 
         case SC_VIEW_RESULTS:
-
             // Screen to view the results of the operation (or viewing them through the logs)
+
+            // Display menu framework (max pages is 2 + number of poles detected)
             displayMenuPage("                ",
                             "                ",
                             "                ",
                             page > 0, page < (CURRENT_OPERATION.totalNumberOfPoles + 1));
 
+            // Page 1 (indexed at 0): displays temporal information
             if (page == 0) {
+                // Display the month, day and year
                 lcd_set_ddram_addr(LCD_LINE1_ADDR);
                 printf("Day: %s %02X/19", months[CURRENT_OPERATION.startTime[4]], CURRENT_OPERATION.startTime[3]);
+                // Display the time the operation started
                 lcd_set_ddram_addr(LCD_LINE2_ADDR);
                 printf("Time:   %02X:%02X:%02X", CURRENT_OPERATION.startTime[2], CURRENT_OPERATION.startTime[1], CURRENT_OPERATION.startTime[0]);
+                // Display the duration of the operation
                 lcd_set_ddram_addr(LCD_LINE3_ADDR);
                 printf("Duration:  %02d:%02d", CURRENT_OPERATION.duration / 60, CURRENT_OPERATION.duration % 60);
 
+            // Page 2 (indexed at 1): displays information about the total number of poles/tires
             } else if (page == 1) {
+                // Display the total number of poles
                 lcd_set_ddram_addr(LCD_LINE1_ADDR);
                 printf("Poles Found:  %02d", CURRENT_OPERATION.totalNumberOfPoles);
+                // Display the total number of supplied tires
                 lcd_set_ddram_addr(LCD_LINE2_ADDR);
                 printf("Total Tires:  %02d", CURRENT_OPERATION.totalSuppliedTires);
 
+            // Page 3-12 (indexed at 2-11): displays information about specific poles
             } else if (page > 1 && page < CURRENT_OPERATION.totalNumberOfPoles + 2) {
+                // Display the pole being described
                 lcd_set_ddram_addr(LCD_LINE1_ADDR);
                 printf("Pole #%02d  %03d cm", page - 1, CURRENT_OPERATION.distanceOfPole[page - 2]);
+                // Display the number of tires stacked onto the pole
                 lcd_set_ddram_addr(LCD_LINE2_ADDR);
                 printf("Tires Stacked: %01d", CURRENT_OPERATION.tiresDeployedOnPole[page - 2]);
+                // Display the number of tires on the pole after the operation
                 lcd_set_ddram_addr(LCD_LINE3_ADDR);
                 printf("Tires on Pole: %01d", CURRENT_OPERATION.tiresOnPoleAfterOperation[page - 2]);
             }
@@ -1515,19 +1495,21 @@ void setScreen(Screen newScreen) {
 
         case SC_SELECT_SAVE_SLOT:
         // Display menu page for user to select slot to save the operation
+
+            // Display the menu framework (max pages holds up to MAX_LOGS entries)
             displayMenuPage("                ",
                             "                ",
                             "                ",
-                            page > 0, page < 5);
+                            page > 0, page < (MAX_LOGS - 1) / 3);
 
+            // Display the slots available and add "USED" if the slot is taken
             lcd_set_ddram_addr(LCD_LINE1_ADDR);
-            printf("[A] Slot %02d %s", (page * 3) + 1, getLogSlot(page * 3) == USED ? "USED" : "    ");
-            if (page < 5) {
-                lcd_set_ddram_addr(LCD_LINE2_ADDR);
-                printf("[B] Slot %02d %s", (page * 3) + 2, getLogSlot((page * 3) + 1) == USED ? "USED" : "    ");
-                lcd_set_ddram_addr(LCD_LINE3_ADDR);
-                printf("[C] Slot %02d %s", (page * 3) + 3, getLogSlot((page * 3) + 2) == USED ? "USED" : "    ");
-            }
+            printf("[A] Slot %02d %s", (page * 3) + 1, getLogSlot(page * 3) == SLOT_USED ? "USED" : "    ");
+            lcd_set_ddram_addr(LCD_LINE2_ADDR);
+            printf("[B] Slot %02d %s", (page * 3) + 2, getLogSlot((page * 3) + 1) == SLOT_USED ? "USED" : "    ");
+            lcd_set_ddram_addr(LCD_LINE3_ADDR);
+            printf("[C] Slot %02d %s", (page * 3) + 3, getLogSlot((page * 3) + 2) == SLOT_USED ? "USED" : "    ");
+
             break;
 
         case SC_OVERWRITE_LOG_VERIFICATION_1:
@@ -1571,28 +1553,64 @@ void setScreen(Screen newScreen) {
                         "[D] OK          ");
 
             lcd_set_ddram_addr(LCD_LINE3_ADDR);
-            printf("    slot %02d     ", CURRENT_OPERATION.savedSlot);
+            printf("    slot %02d     ", CURRENT_OPERATION.saveSlot);
             break;
 
-        case SC_MEMORY_ERROR:
-        // Display error
-            displayPage("  MEMORY ERROR  ",
+        case SC_LOG_VIEW_ERROR:
+        // Display unsuccessful retrieval of operation error
+            displayPage("     ERROR      ",
+                        " Unable to read ",
+                        " operation data ",
+                        "[D] OK          ");
+            break;
+
+        case SC_INVALID_SCREEN_ERROR:
+        // Display invalid screen error
+            displayPage("     ERROR      ",
+                        " Invalid screen ",
                         "                ",
+                        "[D] OK          ");
+            break;
+
+        case SC_INVALID_STATE_ERROR:
+        // Display invalid state error
+            displayPage("     ERROR      ",
+                        " Invalid state  ",
                         "                ",
-                        "[D] Back        ");
+                        "[D] OK          ");
+            break;
+
+        case SC_SAVE_OPERATION_ERROR:
+        // Display saving operation error
+            displayPage("     ERROR      ",
+                        " Unable to save ",
+                        "  the operation ",
+                        "[D] OK          ");
             break;
 
         default:
-            return;
+        // For an invalid screen, throw an error
+            setStatus(ST_ERROR);
+            setScreen(SC_INVALID_SCREEN_ERROR);
             break;
-
     }
-    
-    CURRENT_SCREEN = newScreen;
 }
 
 void refreshScreen(void) {
     setScreen(getScreen());
+}
+
+void activateEmergencyStop(void) {
+    // Disable all actuators and display a terminated screen
+
+    // Tell arduino to stop DC motors
+    UART_Write(MSG_P2A_STOP);
+
+    // Disable stepper motor
+    STEPPER_EN = 0;
+
+    // Display termination screen
+    setStatus(ST_COMPLETED_OP);
 }
 
 // Interrupt Functions
@@ -1604,14 +1622,9 @@ void __interrupt() interruptHandler(void){
         key = keys[(PORTB & 0xF0) >> 4];
         INT1IF = 0;
 
-    } else if (INT2IE && INT2IF) {
+    } else if (INT0IE && INT0IF) {
         emergency_stop_pressed = true;
-        INT2IF = 0;
-
-    // } else if (RCIE && RCIF) {
-    //     receivedMessageFromArduino = true;
-    //     messageFromArduino = RCREG;
-    //     LATCbits.LATC0 = 1;
-    //     RCIF = 0;
+        activateEmergencyStop();
+        INT0IF = 0;
     }
 }

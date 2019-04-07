@@ -41,75 +41,35 @@ static inline unsigned char EEPROM_WriteByte(unsigned short eepromAdr, unsigned 
     
     // Verify that byte was written successfully
     if (EEPROM_ReadByte(eepromAdr) == eepromData) {
-        return SUCCESS;
+        return SUCCESSFUL;
     } else {
-        return FAIL;
+        return UNSUCCESSFUL;
     }
 }
 /***************************** Public Functions ******************************/
-unsigned char writeAllLogSlots(unsigned short newLogSlots) {
-    unsigned char successful = EEPROM_WriteByte(ADDR_LOGSLOTS_LOW, (newLogSlots >> 8) & 0xFF);
-    if (successful == FAIL) {
-        return FAIL;
+unsigned char getLogSlot(unsigned char slotNumber) {
+    // Checks the slot number to see if the slot is available to store an operation
+    if (slotNumber >= MAX_LOGS) {
+        return UNSUCCESSFUL;
     }
 
-    successful = EEPROM_WriteByte(ADDR_LOGSLOTS_HIGH, (newLogSlots & 0xFF));
-    return successful;
+    // Check the first byte of the operation to see if there is an operation saved
+    if (EEPROM_ReadByte == SLOT_USED) {
+        return SLOT_USED;
+    }
+
+    return SLOT_AVAILABLE;
 }
 
-unsigned char setLogSlot(unsigned char slotNumber, logslot_setting setting) {
-    // Must be a valid slot
-    if (slotNumber > MAX_LOGS) {
-        return FAIL;
-    }
+unsigned char getSlotsAvailable(void) {
+    // Return the number of save log slots available
 
-    // Select logslot address depending on requested slot number
-    unsigned char logslot_addr = ADDR_LOGSLOTS_LOW;
-    if (slotNumber > 7) {
-        logslot_addr = ADDR_LOGSLOTS_HIGH;
-    }
-
-    // Retrieve log slot information
-    unsigned char logslotList = EEPROM_ReadByte(logslot_addr);
-
-    // Set the slot number depending on the setting
-    if (setting == AVAILABLE) {
-        logslotList &= ~(1 << (7 - (slotNumber % 8)));
-    } else if (setting == USED) {
-        logslotList |= 1 << (7 - (slotNumber % 8));
-    } else {
-        return FAIL;
-    }
-    
-    // Write new logslot list to EEPROM
-    unsigned char successful = EEPROM_WriteByte(logslot_addr, logslotList);
-    return successful;
-}
-
-logslot_setting getLogSlot(unsigned char slotNumber) {
-    // Retrieve the correct log slot address based on the slot number
-    unsigned char logslot_addr = ADDR_LOGSLOTS_LOW;
-    if (slotNumber > 7) {
-        logslot_addr = ADDR_LOGSLOTS_HIGH;
-    }
-
-    // Retrieve the log slot list from EEPROM
-    unsigned char logslotList = EEPROM_ReadByte(logslot_addr);
-
-    // Return the bit corresponding to the slot number
-    return (logslotList >> (7 - (slotNumber % 8))) & 1;
-}
-
-unsigned char getSlotsUsed(void) {
-    unsigned short logslotValues = (EEPROM_ReadByte(ADDR_LOGSLOTS_LOW) << 8) | EEPROM_ReadByte(ADDR_LOGSLOTS_HIGH);
-    unsigned char count = 0;
-
-    // Count the number of 1's in the list of log slots
-    while (logslotValues > 0) {
-        if ((logslotValues & 1) == USED) {
+    unsigned char count = 0;    // How many slots are available
+    unsigned char i;            // iterative variable
+    for (i = 0; i < MAX_LOGS; i++) {
+        if (getLogSlot(i) == SLOT_AVAILABLE) {
             count++;
         }
-        logslotValues >>= 1;
     }
 
     return count;
@@ -202,7 +162,7 @@ void unpackCondensedOperation(Operation op) {
 unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation op) {
 
     if (slotNumber >= MAX_LOGS) {
-        return FAIL;
+        return UNSUCCESSFUL;
     }
     
     unsigned char result;
@@ -210,8 +170,8 @@ unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation
 
     for (char i = 0; i < 32; i++) {
         result = EEPROM_WriteByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG + i, op.condensedOperation[i]);
-        if (result == FAIL) {
-            return FAIL;
+        if (result == UNSUCCESSFUL) {
+            return UNSUCCESSFUL;
         }
     }
     
@@ -222,13 +182,138 @@ unsigned char saveCondensedOperationIntoLogs(unsigned char slotNumber, Operation
 
 unsigned char getCondensedOperationFromLogs(Operation op, unsigned char slotNumber) {
     if (slotNumber > MAX_LOGS) {
-        return FAIL;
+        return UNSUCCESSFUL;
     }
     
     for (char i = 0; i < 32; i++) {
         op.condensedOperation[i] = EEPROM_ReadByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG + i);
     }
     
-    return SUCCESS;
+    return SUCCESSFUL;
     
+}
+
+unsigned char storeOperationIntoLogs(Operation op, unsigned char slotNumber) {
+    // Do not allow storage of logs past the maximum limit
+    if (slotNumber >= MAX_LOGS) {
+        return UNSUCCESSFUL;
+    }
+
+    unsigned char result;   // Used to return SUCCESSFUL/UNSUCCESSFUL
+    unsigned char i;        // Iterative variable
+    unsigned short currentMemoryAddr = ADDR_FIRST_LOG + (slotNumber * LOG_SIZE);    // Keeps track of current memory address
+
+    // Flag that the operation is saved into logs
+    op.savedIntoLogs = true;
+
+    // Store byte [0] as a true (used to check whether an operation is saved in a specifed slot)
+    result = EEPROM_WriteByte(currentMemoryAddr, op.savedIntoLogs);
+    stopIfFailed(result);
+    currentMemoryAddr++;
+
+    // Store bytes [1, 5] as startTime
+    for (i = 0; i < 5; i++) {
+        result = EEPROM_WriteByte(currentMemoryAddr, op.startTime[i])
+        stopIfFailed(result);
+        currentMemoryAddr++;
+    }
+
+    // Store byte [6] as duration
+    result = EEPROM_WriteByte(currentMemoryAddr, op.duration);
+    stopIfFailed(result);
+    currentMemoryAddr++;
+
+    // Store byte [7] as total supplied tires
+    result = EEPROM_WriteByte(currentMemoryAddr, op.totalSuppliedTires);
+    stopIfFailed(result);
+    currentMemoryAddr++;
+
+    // Store byte [8] as total number of poles detected
+    result = EEPROM_WriteByte(currentMemoryAddr, op.totalNumberOfPoles);
+    stopIfFailed(result);
+    currentMemoryAddr++;
+
+    // Store bytes [9, 18] as tires deployed on each pole
+    for (i = 0; i < 10; i++) {
+        result = EEPROM_WriteByte(currentMemoryAddr, op.tiresDeployedOnPole[i]);
+        stopIfFailed(result);
+        currentMemoryAddr++;
+    }
+
+    // Stores bytes [19, 28] as total tires on each pole after operation
+    for (i = 0; i < 10; i++) {
+        result = EEPROM_WriteByte(currentMemoryAddr, op.tiresOnPoleAfterOperation[i]);
+        stopIfFailed(result);
+        currentMemoryAddr++;
+    }
+
+    // Stores bytes [29, 48] as the distances of each pole after operation
+    for (i = 0; i < 10; i++) {
+        // Each distance is a short value (2 bytes), store most significant byte first
+        result = EEPROM_WriteByte(currentMemoryAddr, op.tiresOnPoleAfterOperation[i] >> 8);
+        stopIfFailed(result);
+        currentMemoryAddr++;
+
+        result = EEPROM_WriteByte(currentMemoryAddr, op.tiresOnPoleAfterOperation[i] & 0xFF);
+        stopIfFailed(result);
+        currentMemoryAddr++;
+    }
+
+    return SUCCESSFUL;
+
+}
+
+unsigned char getOperationFromLogs(Operation *op, unsigned char slotNumber) {
+    // If the log slot is out of range or there are no operations saved, return UNSUCCESSFUL
+    unsigned char logSlotStatus = getLogSlot(slotNumber);
+    if (logSlotStatus == UNSUCCESSFUL || logSlotStatus == SLOT_AVAILABLE) {
+        return UNSUCCESSFUL;
+    }
+
+    // Initialize the current memory address (add 1 to ignore the "saved in logs" byte)
+    unsigned short currentMemoryAddr = (LOG_SIZE * slotNumber) + ADDR_FIRST_LOG + 1;
+    unsigned char i;    // Reused iterative variable
+
+    // Read 5 bytes for the start time
+    for (i = 0; i < 5; i++) {
+        op->startTime[i] = EEPROM_ReadByte(currentMemoryAddr);
+        currentMemoryAddr++;
+    }
+
+    // Read 1 byte for the duration
+    op->duration = EEPROM_ReadByte(currentMemoryAddr);
+    currentMemoryAddr++;
+
+    // Read 1 byte for the total number of tires supplied
+    op->totalSuppliedTires = EEPROM_ReadByte(currentMemoryAddr);
+    currentMemoryAddr++;
+
+    // Read 1 byte for the total number of poles detected
+    op->totalNumberOfPoles = EEPROM_ReadByte(currentMemoryAddr);
+    currentMemoryAddr++;
+
+    // Read 10 bytes for the number of tires deployed on each pole
+    for (i = 0; i < 10; i++) {
+        op->tiresDeployedOnPole[i] = EEPROM_ReadByte(currentMemoryAddr);
+        currentMemoryAddr++;
+    }
+
+    // Read 10 bytes for the number of tires on each pole after the operation
+    for (i = 0; i < 10; i++) {
+        op->tiresOnPoleAfterOperation[i] = EEPROM_ReadByte(currentMemoryAddr);
+        currentMemoryAddr++;
+    }
+
+    // Read 20 bytes (10 short values, 2 bytes each) for the positions of each pole
+    for (i = 0; i < 10; i++) {
+
+        // Store the MSB into a short
+        unsigned short position = EEPROM_ReadByte(currentMemoryAddr) << 8;
+        currentMemoryAddr++;
+
+        op->distanceOfPole[i] = position | EEPROM_ReadByte(currentMemoryAddr);
+        currentMemoryAddr++;
+    }
+
+    return SUCCESSFUL;
 }

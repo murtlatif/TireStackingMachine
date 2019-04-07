@@ -14,118 +14,21 @@
 /***************************** Private Functions *****************************/
 
 /***************************** Public Functions ******************************/
-void driveDCMotor(motor desiredMotor, motor_setting motorSetting) {
-    if (desiredMotor == MOTOR1 || desiredMotor == MOTOR2 || desiredMotor == BOTH) {
-        unsigned char forwardInput;
-        unsigned char backwardInput;
-
-        switch (motorSetting) {
-            case CLOCKWISE:
-                forwardInput = 1;
-                backwardInput = 0;
-                break;
-
-            case COUNTER_CLOCKWISE:
-                forwardInput = 0;
-                backwardInput = 1;
-                break;
-
-            case OFF:
-                forwardInput = 0;
-                backwardInput = 0;
-                break;
-
-            default:
-                forwardInput = 0;
-                backwardInput = 0;
-                break;
-
-        }
-
-        switch (desiredMotor) {
-            case MOTOR1:
-                LATCbits.LATC0 = forwardInput;
-                LATCbits.LATC1 = backwardInput;
-                break;
-
-            case MOTOR2:
-                LATAbits.LATA0 = forwardInput;
-                LATAbits.LATA1 = backwardInput;
-                break;
-                
-            case BOTH:
-                LATCbits.LATC0 = forwardInput;
-                LATCbits.LATC1 = backwardInput;
-                LATAbits.LATA0 = forwardInput;
-                LATAbits.LATA1 = backwardInput;
-                break;
-                
-            default:
-                break;
-        }
-    }
-}
-
-void stepStepper(unsigned char step) {
-    unsigned char step1 = 0;
-    unsigned char step2 = 0;
-    unsigned char step3 = 0;
-    unsigned char step4 = 0;
-    
-    switch (step) {
-        case 0:
-            step1 = 1;
-            break;
-            
-        case 1:
-            step2 = 1;
-            break;
-            
-        case 2:
-            step3 = 1;
-            break;
-            
-        case 3:
-            step4 = 1;
-            break;
-            
-        default:
-            break;
-    }
-    
-    STEPPER_IN1 = step1;
-    STEPPER_IN2 = step2;
-    STEPPER_IN3 = step3;
-    STEPPER_IN4 = step4;
-    
-}
-
-unsigned char getNumberOfTiresOnPole(void) {
-    return 0;
-}
-
-unsigned char getNumberOfTiresRequiredForPole(Operation op) {
-    if (op.totalNumberOfPoles == 1) {
-        return 2;
-    }
-
-    if ((op.distanceOfPole[op.totalNumberOfPoles - 1] - op.distanceOfPole[op.totalNumberOfPoles - 2]) < 30) {
-        return 1;
-    } 
-    
-    return 2;
-}
-
 void driveStepper(unsigned char revolutions, unsigned char dir) {
+    // Enable stepper motor and set direction
     STEPPER_EN = 1;
     STEPPER_DIR = dir;
+
+    // Provide pulses to drive stepper
     STEPPER_PULSE = 0;
-    for (int i = 0; i < (200 * revolutions); i ++) {
+    for (int i = 0; i < (200 * revolutions); i++) { // 200 cycles is one revolution (360 degrees)
         STEPPER_PULSE = 1;
         __delay_ms(1);
         STEPPER_PULSE = 0;
         __delay_ms(1);
     }
+
+    // Disable stepper motor
     STEPPER_EN = 0;
     STEPPER_DIR = 0;
 }

@@ -25,21 +25,21 @@ unsigned char UART_Init(const long int baudrate) {
         CREN = 1;                                     //Enables Continuous Reception
         TXEN = 1;                                     //Enables Transmission
         __delay_ms(5);                                    // Takes time for TXEN to settle
-        return FAIL;                                     //Returns 1 to indicate Successful Completion
+        return UNSUCCESSFUL;                                     //Returns 1 to indicate Successful Completion
   }
   
-  return SUCCESS;                                    //Return to indicate UART initialization failed
+  return SUCCESSFUL;                                    //Return to indicate UART initialization failed
 }
 
 unsigned char UART_Write(char data) {
     unsigned short timeoutCounter = 0;
     while(!TXIF ) {
         if (timeoutCounter == 10000) {
-            return FAIL;
+            return UNSUCCESSFUL;
         }
     };
     TXREG = data;
-    return SUCCESS;
+    return SUCCESSFUL;
 }
 
 char UART_TX_Empty(void) {
@@ -58,7 +58,7 @@ unsigned char UART_Transmit_Yield(unsigned char byteToTransmit) {
     
     while (!TXIF | !TRMT) {
         if (timeoutCounter == 10000) {
-            return FAIL;
+            return UNSUCCESSFUL;
         }
         
         timeoutCounter++;
@@ -66,18 +66,18 @@ unsigned char UART_Transmit_Yield(unsigned char byteToTransmit) {
     }
     
     TXREG = byteToTransmit;
-    return SUCCESS;
+    return SUCCESSFUL;
 }
 
 unsigned char UART_Receive(unsigned char *data) {
     if (PIR1bits.RCIF) {        // Check if UART receive interrupt flag is set
         if (PIR1bits.TXIF) {    // Check if TXREG is empty
             *data = RCREG;
-            return SUCCESS;
+            return SUCCESSFUL;
         }
     }
     
-    return FAIL;
+    return UNSUCCESSFUL;
 }
 
 char UART_Data_Ready(void) {
@@ -96,7 +96,15 @@ void UART_Read_Text(char *Output, unsigned int length) {
     }
 }
 
-char UART_Request_Data(unsigned char requestCode) {
+char UART_Request_Byte(unsigned char requestCode) {
     UART_Write(requestCode);
     return UART_Read();
+}
+
+short UART_Request_Short(unsigned char requestCode) {
+    short requestedData;
+    UART_Write(requestCode);
+    requestedData = UART_Read() << 8;
+
+    return requestedData | UART_Read();
 }
