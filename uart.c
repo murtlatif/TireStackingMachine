@@ -25,7 +25,7 @@ unsigned char UART_Init(long int baudrate) {
         __delay_ms(5);  // Takes time for TXEN to settle
 
         return SUCCESSFUL;  // return to indicate a successful completion
-  }
+    }
   
   return UNSUCCESSFUL;  //Return to indicate UART initialization failed
 }
@@ -37,10 +37,10 @@ unsigned char UART_Write(unsigned char data) {
     // If the byte cannot be written for more than 1.5 seconds, return UNSUCCESSFUL
     while(!TXIF) {
         if (timeoutCounter == 15000) {
-            return UNSUCCESSFUL;
+            return UART_WRITE_TIMEOUT;
         }
     };
-
+    
     __delay_us(100);
     timeoutCounter++;
 
@@ -49,10 +49,14 @@ unsigned char UART_Write(unsigned char data) {
 }
 
 // Writes multiple bytes to the serial comm.
-void UART_Write_Text(unsigned char *text) {
+unsigned char UART_Write_Text(unsigned char *text) {
     for (unsigned char i = 0; text[i] != '\0'; i++) {
-        UART_Write(text[i]);
+        if (UART_Write(text[i]) == UART_WRITE_TIMEOUT) {
+            return UART_WRITE_TIMEOUT;
+        }
     }
+
+    return SUCCESSFUL;
 }
 
 // Checks whether data is ready to receive from the serial comm.
@@ -61,30 +65,69 @@ char UART_Data_Ready(void) {
 }
 
 // Read and return the data in the register
-unsigned char UART_Read(void) {
-    while(!RCIF);
-    return RCREG;
+unsigned char UART_Read(unsigned char *requestedData) {
+    unsigned short timeoutCounter = 0;
+
+    // If there is no data available after 1.5s, timeout 
+    while(!UART_Data_Ready()) {
+        if (timeoutCounter == 15000) {
+            return UART_READ_TIMEOUT;
+        }
+    }
+
+    *requestedData = RCREG;
+    return SUCCESSFUL;
 }
 
 // Read and store data of variable length into an output variable
-void UART_Read_Text(char *output, unsigned int length) {
+unsigned char UART_Read_Text(unsigned char *output, unsigned int length) {
     unsigned char i;
     for (i = 0; i < length; i++) {
-        output[i] = UART_Read();
+        if (UART_Read(&(output[i])) == UART_READ_TIMEOUT) {
+            return UART_READ_TIMEOUT;
+        }
     }
+
+    return SUCCESSFUL;
 }
 
 // Write a code into the serial comm. and return the next byte received
-char UART_Request_Byte(unsigned char requestCode) {
-    UART_Write(requestCode);
-    return UART_Read();
+unsigned char UART_Request_Byte(unsigned char requestCode, unsigned char *requestedByte) {
+    // Write the code to the serial comm.
+    if (UART_Write(requestCode) == UART_WRITE_TIMEOUT) {
+        return UART_WRITE_TIMEOUT;
+    }
+    
+    // Read the value into requestedByte
+    if (UART_Read(requestedByte) == UART_READ_TIMEOUT) {
+        return UART_READ_TIMEOUT;
+    }
+
+    return SUCCESSFUL;
 }
 
 // Write a code into the serial comm. and return the next two bytes received
-short UART_Request_Short(unsigned char requestCode) {
-    short requestedData;
-    UART_Write(requestCode);
-    requestedData = UART_Read() << 8;
+unsigned char UART_Request_Short(unsigned char requestCode, unsigned short *requestedShort) {
+    unsigned char requestedShort_Upper;
+    unsigned char requestedShort_Lower;
+    
+    // Write the code to the serial comm.
+    if (UART_Write(requestCode) == UART_WRITE_TIMEOUT) {
+        return UART_WRITE_TIMEOUT;
+    }
 
-    return requestedData | UART_Read();
+    // Read the upper byte into a temporary variable
+    if (UART_Read(&requestedShort_Upper) == UART_READ_TIMEOUT) {
+        return UART_READ_TIMEOUT;
+    }
+
+    // Read the lower byte into requestedShort
+    if (UART_Read(&requestedShort_Lower) == UART_READ_TIMEOUT) {
+        return UART_READ_TIMEOUT;
+    }
+
+    // Set requestedShort to be the combination of the upper and lower byte
+    *requestedShort = (requestedShort_Upper << 8) | requestedShort_Lower;
+
+    return SUCCESSFUL;
 }

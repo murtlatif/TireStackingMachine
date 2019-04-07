@@ -16,13 +16,13 @@
 #define LOG_SIZE 49      // the size (bytes) that one operation takes
 #define MAX_LOGS 6       // maximum number of logs that can be stored
 
-#define SLOT_AVAILABLE 2 // value to represent an available log slot
-#define SLOT_USED 3      // value to represent a used log slot
+#define SLOT_AVAILABLE 4 // value to represent an available log slot
+#define SLOT_USED 5      // value to represent a used log slot
 
-#define stopIfFailed(RESULT) {     \
-     if (RESULT == UNSUCCESSFUL) { \
-          return UNSUCCESSFUL;     \
-     }                             \
+#define stopIfUnsuccessful(RESULT) {    \
+     if (RESULT == UNSUCCESSFUL) {      \
+          return UNSUCCESSFUL;          \
+     }                                  \
 }
 /******************************** Constants **********************************/
 
@@ -48,7 +48,7 @@ typedef struct Operation {
 /************************ Public Function Prototypes *************************/
 unsigned char getLogSlot(unsigned char slotNumber);
 
-unsigned char getSlotsUsed(void);
+unsigned char getSlotsAvailable(void);
 
 unsigned char storeOperationIntoLogs(Operation op, unsigned char slotNumber);
 

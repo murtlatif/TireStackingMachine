@@ -100,6 +100,8 @@ byte rightmotor_speed = 225;
 // Setup objects
 SoftwareSerial serialCom = SoftwareSerial(rxPin, txPin);
 Adafruit_VL53L0X Sensor_Base = Adafruit_VL53L0X();
+Adafruit_VL53L0X Sensor_Tire1;
+Adafruit_VL53L0X Sensor_Tire2;
 
 void setup(void) {
     // Setup pins
@@ -172,12 +174,12 @@ void loop(void) {
                 driveMotors(FORWARD);
                 break;
 
-            case MSG_DEBUG_DRIVE_BACKWARD:
+            case MSG_P2A_DEBUG_DRIVE_BACKWARD:
             // Receive signal to put motors into backward drive state
                 driveMotors(BACKWARD);
                 break;
 
-            case MSG_DEBUG_STOP:
+            case MSG_P2A_DEBUG_STOP:
             // Receive signal to stop motors
                 driveMotors(OFF);
                 break;
@@ -185,7 +187,7 @@ void loop(void) {
             case MSG_P2A_DEBUG_SENSOR:
             // Receive signal to request sensor data
                 delay(5);
-                serialCom.write(readSensor());
+                serialCom.write(readSensor(Sensor_Base));
                 break;
 
             default:
@@ -220,7 +222,7 @@ void loop(void) {
                 if (isSearching) {
                     // Toggle the pole detected LED while searching
                     digitalWrite(pole_detected_signal_pin, !digitalRead(pole_detected_signal_pin));
-                    distanceMeasured = readSensor();
+                    distanceMeasured = readSensor(Sensor_Base);
 
                     if (distanceMeasured < POLE_DETECTED_RANGE) {
                         if (verificationCount == VALID_VERIFICATION_COUNT) {
@@ -230,7 +232,7 @@ void loop(void) {
                             currentOp.totalNumberOfPoles++;
                             currentOp.tiresDeployedOnPole[currentOp.totalNumberOfPoles - 1] = 0;
                             // currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1] = 0;
-                            currentOp.distanceOfPole[currentOp.totalNumberOfPoles - 1] = currnetOp.position;
+                            currentOp.distanceOfPole[currentOp.totalNumberOfPoles - 1] = currentOp.position;
                             
                             // Decide whether the pole requires 1 or 2 tires
                             if ((currentOp.totalNumberOfPoles == 0) || currentOp.position - currentOp.distanceOfPole[currentOp.totalNumberOfPoles - 1] < 30) {
@@ -244,7 +246,7 @@ void loop(void) {
                                 // 2 tires already on pole, do not need to deploy under any circumstance & record data in operation
                                 currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1] = 2;
                                 tiresRequired = 0;
-                            } else if (readSensor(Sensor_Tire1 <= TIRE_DETECTED_RANGE) {
+                            } else if (readSensor(Sensor_Tire1) <= TIRE_DETECTED_RANGE) {
                                 // 1 tire already on pole, reduce the number of tires required by 1 & record data in operation
                                 tiresRequired -= 1;
                                 currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1] = 1;
@@ -426,14 +428,17 @@ void driveMotors(MOTOR_STATE motorState) {
     }
 }
 
-void initializeEncoder() {
-    encoder_direction = true
+void initializeEncoder(void) {
     pinMode(encoder_master_pinB, INPUT);
     pinMode(encoder_slave_pinB, INPUT);
-    attachInterrupt(digitalPinToInterrupt(encoder_master_pinB), modifyWheelSpeed, CHANGE);
-    attachInterrupt(digitalPinToInerrupt(encoder_slave_pinB), modifyWheelSpeed, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(encoder_master_pinB), masterWheelSpeed, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(encoder_slave_pinB), slaveWheelSpeed, CHANGE);
 }
 
-void masterWheelSpeed() {
-    byte lastState;
+void masterWheelSpeed(void) {
+    driveMotors(OFF);
+}
+
+void slaveWheelSpeed(void) {
+    driveMotors(OFF);
 }

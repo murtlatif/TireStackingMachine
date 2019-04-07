@@ -52,7 +52,7 @@ unsigned char getLogSlot(unsigned char slotNumber) {
     }
 
     // Check the first byte of the operation to see if there is an operation saved
-    if (EEPROM_ReadByte == SLOT_USED) {
+    if (EEPROM_ReadByte((slotNumber * MAX_LOGS) + ADDR_FIRST_LOG) == SLOT_USED) {
         return SLOT_USED;
     }
 
@@ -88,42 +88,42 @@ unsigned char storeOperationIntoLogs(Operation op, unsigned char slotNumber) {
 
     // Store byte [0] as a true (used to check whether an operation is saved in a specifed slot)
     result = EEPROM_WriteByte(currentMemoryAddr, op.savedIntoLogs);
-    stopIfFailed(result);
+    stopIfUnsuccessful(result);
     currentMemoryAddr++;
 
     // Store bytes [1, 5] as startTime
     for (i = 0; i < 5; i++) {
-        result = EEPROM_WriteByte(currentMemoryAddr, op.startTime[i])
-        stopIfFailed(result);
+        result = EEPROM_WriteByte(currentMemoryAddr, op.startTime[i]);
+        stopIfUnsuccessful(result);
         currentMemoryAddr++;
     }
 
     // Store byte [6] as duration
     result = EEPROM_WriteByte(currentMemoryAddr, op.duration);
-    stopIfFailed(result);
+    stopIfUnsuccessful(result);
     currentMemoryAddr++;
 
     // Store byte [7] as total supplied tires
     result = EEPROM_WriteByte(currentMemoryAddr, op.totalSuppliedTires);
-    stopIfFailed(result);
+    stopIfUnsuccessful(result);
     currentMemoryAddr++;
 
     // Store byte [8] as total number of poles detected
     result = EEPROM_WriteByte(currentMemoryAddr, op.totalNumberOfPoles);
-    stopIfFailed(result);
+    stopIfUnsuccessful(result);
     currentMemoryAddr++;
 
     // Store bytes [9, 18] as tires deployed on each pole
     for (i = 0; i < 10; i++) {
         result = EEPROM_WriteByte(currentMemoryAddr, op.tiresDeployedOnPole[i]);
-        stopIfFailed(result);
+        stopIfUnsuccessful(result);
         currentMemoryAddr++;
     }
 
     // Stores bytes [19, 28] as total tires on each pole after operation
     for (i = 0; i < 10; i++) {
         result = EEPROM_WriteByte(currentMemoryAddr, op.tiresOnPoleAfterOperation[i]);
-        stopIfFailed(result);
+        stopIfUnsuccessful(result);
         currentMemoryAddr++;
     }
 
@@ -131,11 +131,11 @@ unsigned char storeOperationIntoLogs(Operation op, unsigned char slotNumber) {
     for (i = 0; i < 10; i++) {
         // Each distance is a short value (2 bytes), store most significant byte first
         result = EEPROM_WriteByte(currentMemoryAddr, op.tiresOnPoleAfterOperation[i] >> 8);
-        stopIfFailed(result);
+        stopIfUnsuccessful(result);
         currentMemoryAddr++;
 
         result = EEPROM_WriteByte(currentMemoryAddr, op.tiresOnPoleAfterOperation[i] & 0xFF);
-        stopIfFailed(result);
+        stopIfUnsuccessful(result);
         currentMemoryAddr++;
     }
 
