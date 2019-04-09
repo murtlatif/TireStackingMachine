@@ -10,6 +10,8 @@
 #include <xc.h>
 #include <stdbool.h>
 #include "configureBits.h"
+
+#include "lcd.h"
 /********************************** Macros ***********************************/
 #define ADDR_FIRST_LOG 0x00   // the address of the first log
 
@@ -29,7 +31,6 @@
 /********************************** Types ************************************/
 typedef struct Operation {
      // Stored information
-     bool savedIntoLogs;
      unsigned char startTime[5];
      unsigned char duration;
      unsigned char totalSuppliedTires;
@@ -46,6 +47,10 @@ typedef struct Operation {
 } Operation;
 
 /************************ Public Function Prototypes *************************/
+unsigned char EEPROM_ReadByte(unsigned char eepromAdr);
+
+unsigned char EEPROM_WriteByte(unsigned short eepromAdr, unsigned char eepromData);
+
 unsigned char getLogSlot(unsigned char slotNumber);
 
 unsigned char getSlotsAvailable(void);

@@ -141,6 +141,8 @@ void displayMenuPage(char line1[], char line2[], char line3[], bool leftPage, bo
     // Print the menu framework with the requested first 3 lines
     displayPage(line1, line2, line3, "                ");
 
+    lcd_set_ddram_addr(LCD_LINE4_ADDR);
+    
     if (leftPage) {
         // Print the left arrow symbol if there is a previous page available
         printf("%c[*] ", 0b01111111);

@@ -20,12 +20,15 @@
 #define MAX_TIRE_CAPACITY 15
 #define RETURN_TO_STANDBY_TIME_SECONDS 15
         
+#define PS_0T 0
+#define PS_1T 1
+#define PS_2T 2
+#define PS_None 3
 //** CONSTANTS **//
 
 // Constant values
 static const char keys[] = "123A456B789C*0#D";
 static const Operation EmptyOperation = {
-    .savedIntoLogs = false,
     .duration = 0,
     .totalSuppliedTires = 0,
     .totalNumberOfPoles = 0,
@@ -63,13 +66,17 @@ typedef enum {
     SC_DEBUG_MOTOR,
     SC_DEBUG_STEPPER,
     SC_DEBUG_SENSOR,
+    SC_DEBUG_CLOCK,
 
     // Logs
     SC_LOGS_MENU,
     SC_LOGS_VIEW,
 
     // Operating
+    SC_OPERATION_DBG,
+    SC_OPERATION_INIT,
     SC_LOAD_TIRES,
+    SC_OPERATION_SENSOR_CHECK,
     SC_OPERATING,
 
     // Termination
@@ -91,6 +98,7 @@ typedef enum {
     SC_UART_INIT_ERROR,
     SC_SEND_ARDUINO_MESSAGE_ERROR,
     SC_UART_READ_TIMEOUT_ERROR,
+    SC_SENSOR_TIMEOUT_ERROR,
 
 } Screen;
 
@@ -102,18 +110,28 @@ typedef enum {
     MSG_P2A_DEBUG_DRIVE_FORWARD,
     MSG_P2A_DEBUG_DRIVE_BACKWARD,
     MSG_P2A_DEBUG_STOP,
-    MSG_P2A_DEBUG_SENSOR,
+    MSG_P2A_DEBUG_SENSOR_BASE,
+    MSG_P2A_DEBUG_SENSOR_TIRE1,
+    MSG_P2A_DEBUG_SENSOR_TIRE2,
+    MSG_P2A_OP_DEBUG,
     MSG_P2A_REQUEST_POSITION,
     MSG_P2A_REQUEST_TIRES_FOUND,
     MSG_P2A_REQUEST_TIRES_REMAINING,
-
+    MSG_P2A_REQUEST_INITIALIZE_SENSOR,
+    MSG_P2A_REQUEST_STATUS_SENSORS,
+    
     // Arduino to PIC Messages
-    MSG_A2P_DRIVING = 100,
+    MSG_A2P_SUCCESS = 100,
+    MSG_A2P_FAILED,
+    MSG_A2P_DRIVING,
+    MSG_A2P_RETURNING,
+    MSG_A2P_POLE_DETECTED,
     MSG_A2P_DEPLOY_STEPPER,
     MSG_A2P_COMPLETE_OP,
-    MSG_A2P_RETURNING,
+    MSG_A2P_SENSOR_TIMEOUT,
 
 } MSG_CODE;
+
 //** VARIABLES **//
 
 // State variables
@@ -121,6 +139,10 @@ Status CURRENT_STATUS;          // Keep track of the current robot status
 Screen CURRENT_SCREEN;          // Keep track of the current LCD screen
 Operation CURRENT_OPERATION;    // To record the operation in progress
 unsigned char page;             // Page number for any page menu LCD
+
+bool dbg = false;
+bool successfullyInitialized;   // Keeps track of initialization
+bool completedInitialization;   // Records the completion of initialization
 
 // Interrupt Variables
 volatile bool key_was_pressed = false;              // Keeps track of whether keypad input was pressed
@@ -132,10 +154,10 @@ unsigned char messageFromArduino;                   // Contains the message rece
 // RTC Variables
 char valueToWriteToRTC[7] = {               // The time to initialize to if writing to RTC
     0x00, // Seconds 
-    0x20, // Minutes
-    0x00, // Hours (set to 24 hour mode)
-    0x01, // Weekday
-    0x07, // Day of month
+    0x30, // Minutes
+    0x17, // Hours (set to 24 hour mode)
+    0x03, // Weekday
+    0x09, // Day of month
     0x04, // Month
     0x19  // Year
 };
@@ -144,6 +166,14 @@ char valueToWriteToRTC[7] = {               // The time to initialize to if writ
 unsigned short returnToStandbyTick = 0;     // Timer variable (milliseconds) for returning to standby mode
 unsigned char returnToStandbyCounter = 0;   // Timer variable (seconds) for returning to standby mode
 
+unsigned char clockTick = 0;    // Time variable (milliseconds) for displaying time
+unsigned short durationTick = 0;
+unsigned short durationSeconds = 0;
+
+// Other variables
+unsigned char pstates[10];
+bool debugMode = false;
+bool receivingData = false;
 //** PROTOTYPES **//
 
 // State Functions
@@ -153,6 +183,7 @@ void setStatus(Status newStatus);
 Screen getScreen(void);
 void setScreen(Screen newScreen);
 void refreshScreen(void);
+void cyclePState(unsigned char pNum);
 
 void main(void) {
     // Setup variables, pins and peripherals
@@ -167,14 +198,15 @@ void main(void) {
 
     // Operation Variables
     unsigned char loadedTires = 15;
-    unsigned char sensorReading;
+    unsigned short sensorReading;
 
     // Other variables
     unsigned char temporaryResult;
-
+    unsigned char temporaryByte;
+    
     // Main Loop
     while (1) {
-        
+
         // Screen based actions
         switch (getScreen()) {
             //==============STATUS: STANDBY==============
@@ -190,8 +222,10 @@ void main(void) {
                     
                 } else {
                     // Read and display the time while on standby screen
-                    readTime(time);
-                    displayTime(time);
+                    if (tick % 100 == 0) {
+                        readTime(time);
+                        displayTime(time);
+                    }
                 }
 
                 break;
@@ -206,7 +240,7 @@ void main(void) {
                 if (key_was_pressed) {
                     switch (key) {
                         case 'A':
-                            setScreen(SC_LOAD_TIRES);
+                            setScreen(SC_OPERATION_INIT);
                             break;
                             
                         case 'B':
@@ -221,12 +255,39 @@ void main(void) {
                             setScreen(SC_DEBUG);
                             break;
 
+                        case '7':
+                        for (unsigned char i = 0; i < 10; i++) {
+                            if (i < 4) {
+                                pstates[i] = PS_0T;
+                            } else {
+                                pstates[i] = PS_None;
+                            }
+                        }
+                            setScreen(SC_OPERATION_DBG);
+                            
+                            break;
+
                         default:
                             break;
                     }
 
                     key_was_pressed = false;
                 }
+
+                // Increment timer for returning to standby while in the main menu screen
+                returnToStandbyTick++;
+                if (returnToStandbyTick == 1000) {
+                    returnToStandbyTick = 0;
+
+                    returnToStandbyCounter++;
+
+                    if (returnToStandbyCounter == RETURN_TO_STANDBY_TIME_SECONDS) {
+                        // After RETURN_TO_STANDBY_TIME_SECONDS, return to Standby status
+                        returnToStandbyCounter = 0;
+                        setStatus(ST_STANDBY);
+                    }
+                }
+
 
                 break;
             //===========================================
@@ -271,6 +332,10 @@ void main(void) {
                            
                         case 'D':
                             setScreen(SC_MENU);
+                            break;
+
+                        case '1':
+                            setScreen(SC_DEBUG_CLOCK);
                             break;
 
                         default:
@@ -332,6 +397,8 @@ void main(void) {
                             break;
 
                         case 'D':
+                            // Return and tell Arduino to stop driving
+                            UART_Write_With_Error_Handle(MSG_P2A_DEBUG_STOP, "   DEBUG_STOP   ");
                             setScreen(SC_DEBUG);
                             break;
 
@@ -399,11 +466,50 @@ void main(void) {
                 
             //===========================================
             case SC_DEBUG_SENSOR:
-                /* [C] Read Sensor
-                 * [D] Back
+                /* [1] Initialize
+                 * [C] Read Sensor
                  */
                 if (key_was_pressed) {
                     switch (key) {
+
+                        case '1':
+                            // Print the first two lines of the screen
+                            lcd_home();
+                            printf("Starting sensor ");
+
+                            lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                            printf("                ");
+
+                            // Request sensor initialization from the Arduino
+                            temporaryResult = UART_Request_Byte(MSG_P2A_REQUEST_INITIALIZE_SENSOR, &temporaryByte);
+
+                            // Throw an error if UART communication failed
+                            if (temporaryResult == UART_READ_TIMEOUT) {
+                                setStatus(ST_ERROR);
+                                setScreen(SC_UART_READ_TIMEOUT_ERROR);
+                                break;
+
+                            } else if (temporaryResult == UART_WRITE_TIMEOUT) {
+                                setStatus(ST_ERROR);
+                                setScreen(SC_SEND_ARDUINO_MESSAGE_ERROR);
+
+                                lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                                printf("RQST_INIT_SENSOR");
+                                break;
+                            } 
+                            
+                            // Display whether the initialization was a success or not
+                            lcd_set_ddram_addr(LCD_LINE2_ADDR);
+
+                            if (temporaryByte == MSG_A2P_SUCCESS) {
+                                printf("Successful start");
+
+                            } else if (temporaryByte == MSG_A2P_FAILED) {
+                                printf("Failed to start ");
+                            }
+
+                            break;
+
 
                         case 'C':
                             // Print first two lines of screen
@@ -413,28 +519,50 @@ void main(void) {
                             printf("                ");
 
                             // Retrieve sensor data from Arduino
-                            temporaryResult = UART_Request_Byte(MSG_P2A_DEBUG_SENSOR, &sensorReading);
+                            temporaryResult = UART_Request_Short(MSG_P2A_DEBUG_SENSOR_BASE, &sensorReading);
 
                             // Throw an error if the UART communication failed
-                            if (temporaryResult == UART_READ_TIMEOUT) {
-                                setStatus(ST_ERROR);
-                                setScreen(SC_UART_READ_TIMEOUT_ERROR);
-                                break;
-                            } else if (temporaryResult == UART_WRITE_TIMEOUT) {
-                                setStatus(ST_ERROR);
-                                setScreen(SC_SEND_ARDUINO_MESSAGE_ERROR);
-
-                                lcd_set_ddram_addr(LCD_LINE3_ADDR);
-                                printf("  DEBUG_SENSOR  ");
-                                break;
-                            };
+                            UART_Request_Error_Handling(temporaryResult, "DEBUG_SNSR_BASE ");
 
                             // Write sensor data to LCD
                             lcd_home();
                             if (sensorReading) {
-                                printf("Distance:  %03dmm", sensorReading);
+                                printf("SNS_BASE:    %03d", sensorReading);
                             } else {
-                                printf("No reading found");
+                                printf("SNS_BASE:   None");
+                            }
+
+                            if (debugMode) {
+                                // Display next sensor results on the second line
+                                lcd_set_ddram_addr(LCD_LINE2_ADDR);
+                                
+                                // Retrieve sensor data from Arduino
+                                temporaryResult = UART_Request_Short(MSG_P2A_DEBUG_SENSOR_TIRE1, &sensorReading);
+
+                                // Throw an error if the UART communication failed
+                                UART_Request_Error_Handling(temporaryResult, "DEBUG_SNSR_TIRE1");
+
+                                // Write sensor data to LCD
+                                if (sensorReading) {
+                                    printf("SNS_TIR1: %d", sensorReading);
+                                } else {
+                                    printf("SNS_TIR1:   None");
+                                }
+
+                                lcd_set_ddram_addr(LCD_LINE3_ADDR);
+
+                                // Retrieve sensor data from Arduino
+                                temporaryResult = UART_Request_Short(MSG_P2A_DEBUG_SENSOR_TIRE2, &sensorReading);
+
+                                // Throw an error if the UART communication failed
+                                UART_Request_Error_Handling(temporaryResult, "DEBUG_SNSR_TIRE2");
+
+                                // Write sensor data to LCD
+                                if (sensorReading) {
+                                    printf("SNS_TIR2: %d", sensorReading);
+                                } else {
+                                    printf("SNS_TIR2:   None");
+                                }
                             }
                             break;
 
@@ -452,6 +580,34 @@ void main(void) {
                 break;
 
             //===========================================
+            case SC_DEBUG_CLOCK:
+                /* [C] Reset Time  
+                 * [D] Back
+                 */
+                
+                if (key_was_pressed) {
+                   switch (key) {
+                        case 'C':
+                            rtcSetTime(valueToWriteToRTC);
+
+                            // Display feedback message
+                            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+                            printf(" Time Rewritten ");
+                            break;
+
+                        case 'D':
+                            setScreen(SC_DEBUG);
+                            break;
+
+                        default:
+                            break;
+                   }
+
+                   key_was_pressed = false;
+               }
+               break;
+
+            //===========================================
             case SC_LOGS_MENU:
                 /* [A] View Logs
                  * [B] Download
@@ -465,6 +621,7 @@ void main(void) {
                             break;
 
                         case 'B':
+                            // to be implemented
                             break;
 
                         case 'D':
@@ -504,7 +661,7 @@ void main(void) {
 
                         case '#':
                             // Go to the next page
-                            if (page < 5) {
+                            if (page < (MAX_LOGS - 1) / 3) {
                                 page++;
                                 refreshScreen();
                             }
@@ -525,8 +682,8 @@ void main(void) {
 
                         case 'B':
                             // View operation from log slot B
-                            if ((getLogSlot(page * 3) + 1) == SLOT_USED) {
-                                if (getOperationFromLogs(&CURRENT_OPERATION, (page * 3) + 1) == SUCCESSFUL) {
+                            if (getLogSlot((page * 3) + 1) == SLOT_USED) {
+                                if (getOperationFromLogs(&CURRENT_OPERATION, ((page * 3) + 1)) == SUCCESSFUL) {
                                     page = 0;
                                     setScreen(SC_VIEW_RESULTS);
                                 } else {
@@ -538,8 +695,8 @@ void main(void) {
 
                         case 'C':
                             // View operation from log slot C
-                            if ((getLogSlot(page * 3) + 2) == SLOT_USED) {
-                                if (getOperationFromLogs(&CURRENT_OPERATION, (page * 3) + 2) == SUCCESSFUL) {
+                            if (getLogSlot((page * 3) + 2) == SLOT_USED) {
+                                if (getOperationFromLogs(&CURRENT_OPERATION, ((page * 3) + 2)) == SUCCESSFUL) {
                                     page = 0;
                                     setScreen(SC_VIEW_RESULTS);
                                 } else {
@@ -556,6 +713,127 @@ void main(void) {
                     key_was_pressed = false;
                 }
 
+                break;
+
+            //===========================================
+            case SC_OPERATION_DBG:
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            setScreen(SC_OPERATION_SENSOR_CHECK);
+                            break;
+
+                        case '1':
+                            cyclePState(0);
+                            refreshScreen();
+                            break;
+
+                        case '2':
+                            cyclePState(1);
+                            refreshScreen();
+                            break;
+
+                        case '3':
+                            cyclePState(2);
+                            refreshScreen();
+                            break;
+
+                        case '4':
+                            cyclePState(3);
+                            refreshScreen();
+                            break;
+
+                        case '5':
+                            cyclePState(4);
+                            refreshScreen();
+                            break;
+
+                        case '6':
+                            cyclePState(5);
+                            refreshScreen();
+                            break;
+
+                        case '7':
+                            cyclePState(6);
+                            refreshScreen();
+                            break;
+
+                        case '8':
+                            cyclePState(7);
+                            refreshScreen();
+                            break;
+
+                        case '9':
+                            cyclePState(8);
+                            refreshScreen();
+                            break;
+
+                        case '0':
+                            cyclePState(9);
+                            refreshScreen();
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    key_was_pressed = false;
+                }
+                break;
+
+            //===========================================
+            case SC_OPERATION_INIT:
+                /* SNSR_BASE:
+                 * SNSR_TIRE1:
+                 * SNSR_TIRE2:
+                 * [D] OK
+                 */
+
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            // Only allow action if initialization is complete
+                            if (completedInitialization) {
+                                // Take the user back to the main menu if the initialization failed
+                                if (successfullyInitialized) {
+                                    setScreen(SC_LOAD_TIRES);
+                                } else {
+                                    setScreen(SC_MENU);
+                                }
+                            }
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    key_was_pressed = false;
+                }
+                
+                break;
+
+            //===========================================
+            case SC_OPERATION_SENSOR_CHECK:
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            // Send signal to arduino to start with the parameters
+                            UART_Write_With_Error_Handle(MSG_P2A_OP_DEBUG, "     OP_DBG     ");
+
+                            for (unsigned char i = 0; i < 10; i++) {
+                                UART_Write_With_Error_Handle(pstates[i], "     PSTATE     ");
+                            }
+
+                            setStatus(ST_OPERATE_START);
+                            dbg = true;
+                            break;
+
+                        default:
+                            break;
+                    }
+
+                    key_was_pressed = false;
+                }
                 break;
 
             //===========================================
@@ -590,8 +868,11 @@ void main(void) {
                         case 'C':
                             // Start the operation with desired amount of tires
                             setStatus(ST_OPERATE_START);
+                            
+                            // Update the current operation with the number of tires remaining
                             CURRENT_OPERATION.tiresRemaining = loadedTires;
                             loadedTires = MAX_TIRE_CAPACITY;
+                            
                             break;
 
                         case 'D':
@@ -610,6 +891,12 @@ void main(void) {
 
             //=============STATUS: OPERATING=============
             case SC_OPERATING:
+                // If the emergency stop button is pressed, stop operating
+                if (emergency_stop_pressed) {
+                    setStatus(ST_COMPLETED_OP);
+                    break;
+                }
+
                 if (key_was_pressed) {
                     switch (key) {
                         case 'D':
@@ -623,9 +910,11 @@ void main(void) {
                     key_was_pressed = false;
                 }
 
+                
                 // Listen for messages from the Arduino
                 if (UART_Data_Ready()) {
-
+                    while (receivingData) { continue; }
+                    receivingData = true;
                     // If the reading timed out, throw an error
                     if (UART_Read(&messageFromArduino) == UART_READ_TIMEOUT) {
                         setStatus(ST_ERROR);
@@ -647,14 +936,48 @@ void main(void) {
                             refreshScreen();
                             break;
 
+                        case MSG_A2P_POLE_DETECTED:
+                        // Set the status when a pole is detected
+                            setStatus(ST_OPERATE_POLE_DETECTED);
+                            break;
+
                         case MSG_A2P_DEPLOY_STEPPER:
                         // Set the status to deploying a tire
+                            printf("BLAHHHHHH");
+                            __delay_ms(1000);
                             setStatus(ST_OPERATE_DEPLOYING_TIRE);
                             break;
 
                         case MSG_A2P_COMPLETE_OP:
                         // Complete the operation on the robot
+                            temporaryResult = UART_Read(&(CURRENT_OPERATION.totalSuppliedTires));
+                            UART_ErrorHandleRead(temporaryResult);
+
+                            temporaryResult = UART_Read(&(CURRENT_OPERATION.totalNumberOfPoles));
+                            UART_ErrorHandleRead(temporaryResult);
+
+                            for (unsigned char i = 0; i < 10; i++) {
+                                temporaryResult = UART_Read(&(CURRENT_OPERATION.tiresDeployedOnPole[i]));
+                                UART_ErrorHandleRead(temporaryResult);
+                            }
+
+                            for (unsigned char i = 0; i < 10; i++) {
+                                temporaryResult = UART_Read(&(CURRENT_OPERATION.tiresOnPoleAfterOperation[i]));
+                                UART_ErrorHandleRead(temporaryResult);
+                            }
+
+                            for (unsigned char i = 0; i < 10; i++) {
+                                temporaryResult = UART_Read_Short(&(CURRENT_OPERATION.distanceOfPole[i]));
+                                UART_ErrorHandleRead(temporaryResult);
+                            }
+
                             setStatus(ST_COMPLETED_OP);
+                            break;
+
+                        case MSG_A2P_SENSOR_TIMEOUT:
+                        // Throw an error if the sensor times out
+                            setStatus(ST_ERROR);
+                            setScreen(SC_SENSOR_TIMEOUT_ERROR);
                             break;
 
                         default:
@@ -666,7 +989,14 @@ void main(void) {
                             printf("%X", messageFromArduino);
                             break;
                     }
+                    receivingData = false;
                 }
+                
+                // Every 1/10 seconds, update position if driving/returning
+                if (tick % 500 == 0 && (getStatus() == ST_OPERATE_DRIVING || getStatus() == ST_OPERATE_RETURN)) {
+                    refreshScreen();
+                }
+
 
                 break;
             
@@ -794,7 +1124,7 @@ void main(void) {
 
                         case '#':
                             // Go to the next page
-                            if (page < ((MAX_LOGS - 1) / 2)) {
+                            if (page < ((MAX_LOGS - 1) / 3)) {
                                 page++;
                                 refreshScreen();
                             }
@@ -806,6 +1136,8 @@ void main(void) {
                                 // If the slot is used, prompt user for verification to overwrite
                                 setScreen(SC_OVERWRITE_LOG_VERIFICATION_1);
                             } else {
+                                lcd_home();
+                                printf("K: %X", getLogSlot(page * 3));
                                 // Try to save the operation into the logs and throw an error if failed
                                 if (storeOperationIntoLogs(CURRENT_OPERATION, page * 3) == UNSUCCESSFUL) {
                                     setStatus(ST_ERROR);
@@ -988,7 +1320,7 @@ void main(void) {
                     }
  
                     key_was_pressed = false;
-                } 
+                }
                 break;
 
             //===========================================
@@ -1132,7 +1464,27 @@ void main(void) {
 
                         default:
                             break;
-                    }
+                    }   
+ 
+                    key_was_pressed = false;
+                } 
+                break;
+
+            //===========================================
+            case SC_SENSOR_TIMEOUT_ERROR:
+                /* [D] OK
+                 */
+
+                if (key_was_pressed) {
+                    switch (key) {
+                        case 'D':
+                            // Return to the main menu
+                            setStatus(ST_READY);
+                            break;
+
+                        default:
+                            break;
+                    }   
  
                     key_was_pressed = false;
                 } 
@@ -1147,19 +1499,11 @@ void main(void) {
         __delay_ms(1);
         tick++;
 
-        if (getStatus() == ST_READY) {
-            // Increment timer for returning to standby while in any menu state
-            returnToStandbyTick++;
-            if (returnToStandbyTick == 1000) {
-                returnToStandbyTick = 0;
-
-                returnToStandbyCounter++;
-
-                if (returnToStandbyCounter == RETURN_TO_STANDBY_TIME_SECONDS) {
-                    // After RETURN_TO_STANDBY_TIME_SECONDS, return to Standby status
-                    returnToStandbyCounter = 0;
-                    setStatus(ST_STANDBY);
-                }
+        if (getScreen() == SC_OPERATING) {
+            durationTick++;
+            if (durationTick == 1000) {
+                durationTick = 0;
+                durationSeconds++;
             }
         }
         
@@ -1201,7 +1545,7 @@ void initialize(void) {
     initLCD();
 
    // Initialize I2C Master with 100 kHz clock
-    I2C_Master_Init(100000); 
+    I2C_Master_Init(100000);
 
     // Enable interrupts
     ei();
@@ -1227,6 +1571,10 @@ Status getStatus(void) {
 void setStatus(Status newStatus) {
     // Sets the new status and performs an initial function
 
+    // Create temporary variables for UART communication
+    unsigned char temporaryResult;
+    unsigned char temporaryByte;
+        
     // Update the status
     CURRENT_STATUS = newStatus;
 
@@ -1239,8 +1587,6 @@ void setStatus(Status newStatus) {
         case ST_READY:
         // Status to navigate robot menus
             setScreen(SC_MENU);
-
-            // Disable emergency_stop_pressed flag
             emergency_stop_pressed = false;
             break;
 
@@ -1260,25 +1606,56 @@ void setStatus(Status newStatus) {
                 CURRENT_OPERATION.startTime[i] = condensedTime[i];
             }
 
+            // Restart the duration timer
+            durationTick = 0;
+            durationSeconds = 0;
+            
+            // Tell the Arduino to start
+            temporaryResult = UART_Write(MSG_P2A_START);
+
+            // Throw an error if there was an error with UART communication
+            if (temporaryResult == UART_WRITE_TIMEOUT) {
+                CURRENT_STATUS = ST_ERROR;
+                setScreen(SC_SEND_ARDUINO_MESSAGE_ERROR);
+                
+                lcd_set_ddram_addr(LCD_LINE3_ADDR);
+                printf("     START      ");
+            }
+
+            // temporaryResult = UART_Write(CURRENT_OPERATION.tiresRemaining);
+            
+            // // Throw an error if there was an error with UART communication
+            // if (temporaryResult == UART_WRITE_TIMEOUT) {
+            //     CURRENT_STATUS = ST_ERROR;
+            //     setScreen(SC_SEND_ARDUINO_MESSAGE_ERROR);
+                
+            //     lcd_set_ddram_addr(LCD_LINE3_ADDR);
+            //     printf("   TIRES_LOAD  ");
+            // }
+
             setScreen(SC_OPERATING);
+
             break;
 
         case ST_OPERATE_DRIVING:
         // Status used while the robot is driving/scanning for poles
-            // do nothing
+            // refresh operation screen
+            setScreen(SC_OPERATING);
             break;
 
         case ST_OPERATE_POLE_DETECTED:
         // Status used when a pole is detected
-            // do nothing
+            // refresh operation screen
+            setScreen(SC_OPERATING);
             break;
 
         case ST_OPERATE_DEPLOYING_TIRE:
         // Robot is deploying a tire using the stepper motor
+
             // drive the stepper motor forward
             driveStepper(REVOLUTIONS_TO_DROP_ONE_TIRE, FORWARD);
 
-            // tell arduino that deployment was completed
+            // tell arduino that deployment was completed and handle errors
             if (UART_Write(MSG_P2A_DEPLOYMENT_COMPLETE) == UART_WRITE_TIMEOUT) {
                 CURRENT_STATUS = ST_ERROR;
                 setScreen(SC_SEND_ARDUINO_MESSAGE_ERROR);
@@ -1287,15 +1664,19 @@ void setStatus(Status newStatus) {
                 printf("DEPLYMNT_COMPLTE");
             }
 
+            // refresh operation screen
+            setScreen(SC_OPERATING);
+
             break;
 
         case ST_OPERATE_RETURN:
         // Status used when the robot is returning to the start
-        // do nothing
+            setScreen(SC_OPERATING);
             break;
 
         case ST_COMPLETED_OP:
         // Status used when the operation is completed
+            CURRENT_OPERATION.duration = durationSeconds;
             setScreen(SC_TERMINATED);
             break;
 
@@ -1326,14 +1707,10 @@ void setScreen(Screen newScreen) {
     unsigned short temporaryShort;
     unsigned char temporaryByte;
 
+    unsigned char i; // iterative variable
+
     // Update the current screen
     CURRENT_SCREEN = newScreen;
-
-    if (getStatus() == ST_READY) {
-        // Refresh returnToStandby timers when screen changes
-        returnToStandbyTick = 0;
-        returnToStandbyCounter = 0;
-    }
 
     switch (newScreen) {
         case SC_STANDBY:
@@ -1346,10 +1723,14 @@ void setScreen(Screen newScreen) {
             
         case SC_MENU:
         // Main navigation menu
-            displayPage("[A] Load Tires  ",
+            displayPage("[A] Start Op.   ",
                         "[B] Logs        ",
                         "[C] About       ",
                         "[D] Debug       ");
+
+            // Reset returnToStandby timers
+            returnToStandbyTick = 0;
+            returnToStandbyCounter = 0;
             break;
 
         case SC_ABOUT:
@@ -1428,8 +1809,20 @@ void setScreen(Screen newScreen) {
 
             // Display the slots taken
             lcd_set_ddram_addr(LCD_LINE2_ADDR);
-            for (char i = 0; i < 16; i++) {
+
+            // Print left side spaces
+            for (i = 0; i < ((16 - MAX_LOGS) / 2); i++) {
+                printf(" ");
+            }
+
+            // Print the slots
+            for (i = 0; i < MAX_LOGS; i++) {
                 printf("%c", getLogSlot(i) == SLOT_USED ? '1' : '0');
+            }
+
+            // Print right side spaces
+            for (i = 0; i < ((16 - MAX_LOGS) / 2); i++) {
+                printf(" ");
             }
 
             break;
@@ -1458,6 +1851,133 @@ void setScreen(Screen newScreen) {
                         "[D] Back        ");
             break;
 
+        case SC_DEBUG_CLOCK:
+        // Clock debug menu
+            displayPage("                ",
+                        "                ",
+                        "[C] Reset Time  ",
+                        "[D] Back        ");
+            break;
+
+        case SC_OPERATION_DBG:
+            
+            displayPage("                ",
+                        "                ",
+                        "                ",
+                        "[D] Continue    ");
+
+            lcd_set_ddram_addr(LCD_LINE1_ADDR);
+            printf("   ");
+            for (unsigned char i = 0; i < 10; i++) {
+                if (pstates[i] == PS_0T || pstates[i] == PS_1T || pstates[i] == PS_2T) {
+                    printf("%X", pstates[i]);
+                } else if (pstates[i] == PS_None) {
+                    printf("-");
+                } else {
+                    printf("?");
+                }
+            }
+            printf("   ");
+            break;
+
+        case SC_OPERATION_SENSOR_CHECK:
+            displayPage("SNSR_Base:  GOOD",
+                        "SNSR_Tire1: GOOD",
+                        "SNSR_Tire2: GOOD",
+                        "[D] Continue    ");
+            break;
+
+        case SC_OPERATION_INIT:
+        // Screen to view initialization of hardware before operating
+            displayPage("SNSR_Base:      ",
+                        "SNSR_Tire1:     ",
+                        "SNSR_Tire2:     ",
+                        "                ");
+
+            // Keep track of any failed initializations
+            successfullyInitialized = true;
+            completedInitialization = false;
+
+            // Request the status of the sensors and retrieve result of Sensor_Base
+            temporaryResult = UART_Request_Byte(MSG_P2A_REQUEST_STATUS_SENSORS, &temporaryByte);
+
+            // Throw an error if UART communication was unsuccessful
+            UART_Request_Error_Handling_Not_Recursive(temporaryResult, " INITRQ_SENSORS ");
+
+            // Print the result of the initialization onto the LCD
+            lcd_set_ddram_addr(LCD_LINE1_ADDR + 12) // Put the cursor at 4 slots before the end
+
+            // Display the result of the initialization of the base sensor
+            if (temporaryByte == MSG_A2P_SUCCESS) {
+                printf("GOOD");
+            } else {
+                successfullyInitialized = false;
+                if (temporaryByte == MSG_A2P_FAILED) {
+                    printf("FAIL");
+                } else {
+                    printf(" ERR");
+                }
+            }
+
+            // // Retrieve the status of Sensor_Tire1
+            // temporaryResult = UART_Read(&temporaryByte);
+
+            // // Throw an error if UART communication fails
+            // UART_Request_Error_Handling_Not_Recursive(temporaryResult, "RD_SENSOR_TIRE1 ");
+
+            // // Display the result on the second line of the screen
+            // lcd_set_ddram_addr(LCD_LINE2_ADDR + 12); // Put the cursor at 4 slots before the end
+
+            // if (temporaryByte == MSG_A2P_SUCCESS) {
+            //     printf("GOOD");
+            // } else {
+            //     successfullyInitialized = false;
+            //     if (temporaryByte == MSG_A2P_FAILED) {
+            //         printf("FAIL");
+            //     } else {
+            //         printf(" ERR");
+            //     }
+            // }
+
+            // // Retrieve the status of Sensor_Tire2
+            // temporaryResult = UART_Read(&temporaryByte);
+
+            // // Throw an error if UART communication fails
+            // UART_Request_Error_Handling_Not_Recursive(temporaryResult, "RD_SENSOR_TIRE@ ");
+
+            // // Display the result on the third line of the screen
+            // lcd_set_ddram_addr(LCD_LINE3_ADDR + 12);
+
+            // if (temporaryByte == MSG_A2P_SUCCESS) {
+            //     printf("GOOD");
+            // } else {
+            //     successfullyInitialized = false;
+            //     if (temporaryByte == MSG_A2P_FAILED) {
+            //         printf("FAIL");
+            //     } else {
+            //         printf(" ERR");
+            //     }
+            // }
+
+            lcd_set_ddram_addr(LCD_LINE2_ADDR + 12);
+            printf("GOOD");
+            // __delay_ms(5);
+            lcd_set_ddram_addr(LCD_LINE3_ADDR + 12);
+            printf("GOOD");
+            
+            // Initialization complete
+            completedInitialization = true;
+
+            // Give the option to continue or return depending on successful initialization
+            lcd_set_ddram_addr(LCD_LINE4_ADDR);
+
+            if (!successfullyInitialized) {
+                printf("[D] Return      ");
+            } else {
+                printf("[D] Continue    ");
+            }
+            break;
+
         case SC_LOAD_TIRES:
         // Select how many tires are loaded into the robot
             displayPage("                ",
@@ -1478,7 +1998,11 @@ void setScreen(Screen newScreen) {
             // Display something based on the status
             switch (getStatus()) {
                 case ST_OPERATE_START:
-                    printf(" Starting op... ");
+                    // Display the framework for initialization
+                    displayPage(" Starting op... ",
+                                "                ",
+                                "                ",
+                                "                ");
                     break;
 
                 case ST_OPERATE_DRIVING:
@@ -1486,33 +2010,18 @@ void setScreen(Screen newScreen) {
                     printf("    DRIVING     ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
 
-                    // Request the position from the Arduino
-                    temporaryResult = UART_Request_Short(MSG_P2A_REQUEST_POSITION, &temporaryShort);
-                    
-                    // If the requested value was unsuccessful, throw an error
-                    if (temporaryResult == UART_READ_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_UART_READ_TIMEOUT_ERROR;
-                        // Display UART read timeout error
-                        displayPage("     ERROR      ",
-                                    "UART Read timed ",
-                                    "      out       ",
-                                    "[D] OK          ");
-                        break;
+                    // while (receivingData) { continue; }
+                    // printf("TEST.C      2001");
+                    // receivingData = true;
+                    // // Request the position from the Arduino
+                    // temporaryResult = UART_Request_Short(MSG_P2A_REQUEST_POSITION, &temporaryShort);
 
-                    } else if (temporaryResult == UART_WRITE_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_SEND_ARDUINO_MESSAGE_ERROR;
-                        // Display send arduino message error
-                        displayPage("     ERROR      ",
-                                    "Send Code Failed",
-                                    "REQUEST_POSITION",
-                                    "[D] OK          ");
-                        break;
-                    }
+                    // // If the requested value was unsuccessful, throw an error
+                    // UART_Request_Error_Handling_Not_Recursive(temporaryResult, "REQUEST_POSITION");
 
-                    // Display the position on the LCD
-                    printf("Position:    %03d", temporaryShort);
+                    // // Display the position on the LCD
+                    // printf("Position:   %04d", temporaryShort);
+                    // receivingData = false;
                     break;
 
                 case ST_OPERATE_POLE_DETECTED:
@@ -1520,33 +2029,17 @@ void setScreen(Screen newScreen) {
                     printf(" POLE DETECTED  ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
 
-                    // Request the number of tires found from the Arduino
-                    temporaryResult = UART_Request_Byte(MSG_P2A_REQUEST_TIRES_FOUND, &temporaryByte);
+                    // while (receivingData) { continue; }
+                    // // Request the number of tires found from the Arduino
+                    // temporaryResult = UART_Request_Byte(MSG_P2A_REQUEST_TIRES_FOUND, &temporaryByte);
 
-                    // If the requested value was unsuccessful, throw an error
-                    if (temporaryResult == UART_READ_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_UART_READ_TIMEOUT_ERROR;
-                        // Display UART read timeout error
-                        displayPage("     ERROR      ",
-                                    "UART Read timed ",
-                                    "      out       ",
-                                    "[D] OK          ");
-                        break;
-                        
-                    } else if (temporaryResult == UART_WRITE_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_SEND_ARDUINO_MESSAGE_ERROR;
-                        // Display send arduino message error
-                        displayPage("     ERROR      ",
-                                    "Send Code Failed",
-                                    "RQST_TIRES_FOUND",
-                                    "[D] OK          ");
-                        break;
-                    }
+                    // // If the requested value was unsuccessful, throw an error
+                    // UART_Request_Error_Handling_Not_Recursive(temporaryResult, "RQST_TIRES_FOUND");
 
-                    // Display the number of tires found on the LCD
-                    printf("Tires Found:  %02d", temporaryByte);
+                    // // Display the number of tires found on the LCD
+                    // printf("Tires Found:  %02d", temporaryByte);
+
+                    // receivingData = false;
 
                     break;
 
@@ -1555,33 +2048,17 @@ void setScreen(Screen newScreen) {
                     printf(" DEPLOYING TIRE ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
 
-                    // Request the number of tires remaining from the Arduino
-                    temporaryResult = UART_Request_Byte(MSG_P2A_REQUEST_TIRES_REMAINING, &temporaryByte);
+                    // while (receivingData) { continue; }
+                    // receivingData = true;
+                    // // Request the number of tires remaining from the Arduino
+                    // temporaryResult = UART_Request_Byte(MSG_P2A_REQUEST_TIRES_REMAINING, &temporaryByte);
 
-                    // If the requested value was unsuccessful, throw an error
-                    if (temporaryResult == UART_READ_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_UART_READ_TIMEOUT_ERROR;
-                        // Display UART read timeout error
-                        displayPage("     ERROR      ",
-                                    "UART Read timed ",
-                                    "      out       ",
-                                    "[D] OK          ");
-                        break;
-                        
-                    } else if (temporaryResult == UART_WRITE_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_SEND_ARDUINO_MESSAGE_ERROR;
-                        // Display send arduino message error
-                        displayPage("     ERROR      ",
-                                    "Send Code Failed",
-                                    "RQST_TIRES_REMNG",
-                                    "[D] OK          ");
-                        break;
-                    }
+                    // // If the requested value was unsuccessful, throw an error
+                    // UART_Request_Error_Handling_Not_Recursive(temporaryResult, "RQST_TIRES_REMNG");
 
-                    // Display the number of tires remaining on the LCD
-                    printf("Tire Ammo:    %02d", temporaryByte);
+                    // // Display the number of tires remaining on the LCD
+                    // printf("Tire Ammo:    %02d", temporaryByte);
+                    // receivingData = false;
                     break;
                     
                 case ST_OPERATE_RETURN:
@@ -1589,33 +2066,17 @@ void setScreen(Screen newScreen) {
                     printf("    RETURNING   ");
                     lcd_set_ddram_addr(LCD_LINE2_ADDR);
 
-                    // Request the position from the Arduino
-                    temporaryResult = UART_Request_Short(MSG_P2A_REQUEST_POSITION, &temporaryShort);
+                    // while (receivingData) { continue; }
+                    // receivingData = true;
+                    // // Request the position from the Arduino
+                    // temporaryResult = UART_Request_Short(MSG_P2A_REQUEST_POSITION, &temporaryShort);
 
-                    // If the requested value was unsuccessful, throw an error
-                    if (temporaryResult == UART_READ_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_UART_READ_TIMEOUT_ERROR;
-                        // Display UART read timeout error
-                        displayPage("     ERROR      ",
-                                    "UART Read timed ",
-                                    "      out       ",
-                                    "[D] OK          ");
-                        break;
+                    // // If the requested value was unsuccessful, throw an error
+                    // UART_Request_Error_Handling_Not_Recursive(temporaryResult, "REQUEST_POSITION");
 
-                    } else if (temporaryResult == UART_WRITE_TIMEOUT) {
-                        CURRENT_STATUS = ST_ERROR;
-                        CURRENT_SCREEN = SC_SEND_ARDUINO_MESSAGE_ERROR;
-                        // Display send arduino message error
-                        displayPage("     ERROR      ",
-                                    "Send Code Failed",
-                                    "REQUEST_POSITION",
-                                    "[D] OK          ");
-                        break;
-                    }
-
-                    // Display the position on the LCD
-                    printf("Position:    %03d", temporaryShort);
+                    // // Display the position on the LCD
+                    // printf("Position:   %04d", temporaryShort);
+                    // receivingData = false;
                     break;
                     
                 default:
@@ -1801,7 +2262,7 @@ void setScreen(Screen newScreen) {
         case SC_UART_INIT_ERROR:
         // Display UART initialization error
             displayPage("     ERROR      ",
-                        "UART Init Failed",
+                        "UART init failed",
                         "                ",
                         "[D] OK          ");
             break;
@@ -1809,7 +2270,7 @@ void setScreen(Screen newScreen) {
         case SC_SEND_ARDUINO_MESSAGE_ERROR:
         // Display send arduino message error
             displayPage("     ERROR      ",
-                        "Send Code Failed",
+                        "Send code failed",
                         "                ",
                         "[D] OK          ");
             break;
@@ -1817,8 +2278,16 @@ void setScreen(Screen newScreen) {
         case SC_UART_READ_TIMEOUT_ERROR:
         // Display UART read timeout error
             displayPage("     ERROR      ",
-                        "UART Read timed ",
+                        "UART read timed ",
                         "      out       ",
+                        "[D] OK          ");
+            break;
+
+        case SC_SENSOR_TIMEOUT_ERROR:
+        // Display UART read timeout error
+            displayPage("     ERROR      ",
+                        "Sensor timed out",
+                        "                ",
                         "[D] OK          ");
             break;
 
@@ -1843,6 +2312,26 @@ void refreshScreen(void) {
     setScreen(getScreen());
 }
 
+void cyclePState(unsigned char pNum) {
+    switch (pstates[pNum]) {
+        case PS_None:
+            pstates[pNum] = PS_0T;
+            break;
+
+        case PS_0T:
+            pstates[pNum] = PS_1T;
+            break;
+
+        case PS_1T:
+            pstates[pNum] = PS_2T;
+            break;
+
+        case PS_2T:
+            pstates[pNum] = PS_None;
+            break;
+    }
+}
+
 void activateEmergencyStop(void) {
     // Disable all actuators and display a terminated screen
 
@@ -1851,24 +2340,28 @@ void activateEmergencyStop(void) {
 
     // Disable stepper motor
     STEPPER_EN = 0;
-
-    // Display termination screen
-    setStatus(ST_COMPLETED_OP);
 }
 
 // Interrupt Functions
 void __interrupt() interruptHandler(void){
 // Handles interrupts received from RB0 (emergency stop) and RB1 (keypad)
+
+    // Keypad interrupt
     if (INT1IE && INT1IF) {
         // Set a flag to handle interrupt and clear interrupt flag bit
+        key = (PORTB & 0xF0);
         key_was_pressed = true;
-        key = keys[(PORTB & 0xF0) >> 4];
+        key = keys[key >> 4];
         INT1IF = 0;
-
-    } else if (INT0IE && INT0IF) {
-        // Set a flag to customize the termination screen
-        emergency_stop_pressed = true;
-        activateEmergencyStop();
+    }
+    
+    // Emergency stop interrupt
+    if (INT0IE && INT0IF) {
+        // Set a flag to customize the termination screen, clear interrupt flag bit
+        if (PORTBbits.RB0 == 0) {
+            emergency_stop_pressed = true;
+            activateEmergencyStop();
+        }
         INT0IF = 0;
     }
 }

@@ -9,17 +9,17 @@
 /******************************** Constants **********************************/
 
 /***************************** Private Functions *****************************/
-static inline unsigned char EEPROM_ReadByte(unsigned char eepromAdr) {
+unsigned char EEPROM_ReadByte(unsigned char eepromAdr) {
     // Reads the data from EEPROM at address eepromAdr
     while (EECON1bits.RD || EECON1bits.WR) { continue; }    // Wait until ready
     EEADR = eepromAdr;      // Set desired address
     EECON1bits.EEPGD = 0;   // Configure to EEPROM memory
     EECON1bits.CFGS = 0;    // Configure to EEPROM memory
     EECON1bits.RD = 1;      // Read the data
-    return EEDATA;          // Return data stored in EEDATA.
+    return EEDATA;
 }
 
-static inline unsigned char EEPROM_WriteByte(unsigned short eepromAdr, unsigned char eepromData) {
+unsigned char EEPROM_WriteByte(unsigned short eepromAdr, unsigned char eepromData) {
     while (EECON1bits.RD || EECON1bits.WR) { continue; }    // Wait until ready
     EEADR = eepromAdr & 0x00FF; // Set low address value (00h - FFh)
     EEADRH = (eepromAdr >> 8);  // Set high address value (0h - 3h) upper 6 bits ignored
@@ -52,7 +52,7 @@ unsigned char getLogSlot(unsigned char slotNumber) {
     }
 
     // Check the first byte of the operation to see if there is an operation saved
-    if (EEPROM_ReadByte((slotNumber * MAX_LOGS) + ADDR_FIRST_LOG) == SLOT_USED) {
+    if (EEPROM_ReadByte((slotNumber * LOG_SIZE) + ADDR_FIRST_LOG) == SLOT_USED) {
         return SLOT_USED;
     }
 
@@ -83,11 +83,8 @@ unsigned char storeOperationIntoLogs(Operation op, unsigned char slotNumber) {
     unsigned char i;        // Iterative variable
     unsigned short currentMemoryAddr = ADDR_FIRST_LOG + (slotNumber * LOG_SIZE);    // Keeps track of current memory address
 
-    // Flag that the operation is saved into logs
-    op.savedIntoLogs = true;
-
     // Store byte [0] as a true (used to check whether an operation is saved in a specifed slot)
-    result = EEPROM_WriteByte(currentMemoryAddr, op.savedIntoLogs);
+    result = EEPROM_WriteByte(currentMemoryAddr, SLOT_USED);
     stopIfUnsuccessful(result);
     currentMemoryAddr++;
 
