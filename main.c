@@ -24,6 +24,8 @@
 #define PS_1T 1
 #define PS_2T 2
 #define PS_None 3
+
+#define DEPLOYMENT_DURATION 9
 //** CONSTANTS **//
 
 // Constant values
@@ -119,6 +121,7 @@ typedef enum {
     MSG_P2A_REQUEST_TIRES_REMAINING,
     MSG_P2A_REQUEST_INITIALIZE_SENSOR,
     MSG_P2A_REQUEST_STATUS_SENSORS,
+    MSG_P2A_ADJUSTMENT_COMPLETE,
     
     // Arduino to PIC Messages
     MSG_A2P_SUCCESS = 100,
@@ -129,6 +132,8 @@ typedef enum {
     MSG_A2P_DEPLOY_STEPPER,
     MSG_A2P_COMPLETE_OP,
     MSG_A2P_SENSOR_TIMEOUT,
+    MSG_A2P_ADJUST_TOWARDS,
+    MSG_A2P_ADJUST_AWAY,
 
 } MSG_CODE;
 
@@ -943,8 +948,6 @@ void main(void) {
 
                         case MSG_A2P_DEPLOY_STEPPER:
                         // Set the status to deploying a tire
-                            printf("BLAHHHHHH");
-                            __delay_ms(1000);
                             setStatus(ST_OPERATE_DEPLOYING_TIRE);
                             break;
 
@@ -980,6 +983,20 @@ void main(void) {
                             setScreen(SC_SENSOR_TIMEOUT_ERROR);
                             break;
 
+                        case MSG_A2P_ADJUST_AWAY:
+                            driveMotors(MOTOR_AWAY);
+                            __delay_ms(15);
+                            driveMotors(MOTOR_OFF);
+                            UART_Write_With_Error_Handle(MSG_P2A_ADJUSTMENT_COMPLETE, "  ADJ_COMPLETE  ")
+                            break;
+
+                        case MSG_A2P_ADJUST_TOWARDS:
+                            driveMotors(MOTOR_TOWARDS);
+                            __delay_ms(15);
+                            driveMotors(MOTOR_OFF);
+                            UART_Write_With_Error_Handle(MSG_P2A_ADJUSTMENT_COMPLETE, "  ADJ_COMPLETE  ")
+                            break;
+
                         default:
                         // Invalid arduino message, throw error
                             setStatus(ST_ERROR);
@@ -991,12 +1008,6 @@ void main(void) {
                     }
                     receivingData = false;
                 }
-                
-                // Every 1/10 seconds, update position if driving/returning
-                if (tick % 500 == 0 && (getStatus() == ST_OPERATE_DRIVING || getStatus() == ST_OPERATE_RETURN)) {
-                    refreshScreen();
-                }
-
 
                 break;
             
@@ -1526,6 +1537,17 @@ void initialize(void) {
     STEPPER_PULSE = 0;  // E1
     STEPPER_DIR = 0;    // A4
 
+    // DC Motor Pins: (C0 / C1: MOTOR_BACK), (A1 / A3: MOTOR_FRONT)
+    TRISCbits.TRISC0 = 0;
+    TRISCbits.TRISC1 = 0;
+    TRISAbits.TRISA1 = 0;
+    TRISAbits.TRISA3 = 0;
+
+    MOTOR_BACK1 = 0;
+    MOTOR_BACK2 = 0;
+    MOTOR_FRONT1 = 0;
+    MOTOR_FRONT2 = 0;
+
     // RD2 is the character LCD RS
     // RD3 is the character LCD enable (E)
     // RD4-RD7 are character LCD data lines
@@ -1654,6 +1676,7 @@ void setStatus(Status newStatus) {
 
             // drive the stepper motor forward
             driveStepper(REVOLUTIONS_TO_DROP_ONE_TIRE, FORWARD);
+            durationSeconds += DEPLOYMENT_DURATION;
 
             // tell arduino that deployment was completed and handle errors
             if (UART_Write(MSG_P2A_DEPLOYMENT_COMPLETE) == UART_WRITE_TIMEOUT) {

@@ -48,15 +48,17 @@
 #define PS_2T 2
 #define PS_None 3
 
-#define POLE_DETECTED_RANGE 200         // Maximium distance a pole can be detected
+#define POLE_DETECTED_RANGE 240         // Maximium distance a pole can be detected
 #define TIRE_DETECTED_RANGE 210         // Maximum distance a tire can be detected
 #define VALID_VERIFICATION_COUNT 1     // How many times the sensor should detect the pole
-#define POLE_DETECTED_BUFFER_REGION 150 // How much distance it must travel before it can detect a new pole
-#define FIRST_POLE_MIN_DISTANCE_MM 150  // The minimum distance the first pole will be found 
+#define POLE_DETECTED_BUFFER_REGION 100 // How much distance it must travel before it can detect a new pole
+#define FIRST_POLE_MIN_DISTANCE_MM 100  // The minimum distance the first pole will be found 
 #define MAX_POLES 10                    // Maximum number of poles in the operation
 #define MAX_DISTANCE_MM 4000            // Maximum distance the robot should travel for the operation
 
-#define DRIVESPEED_MM_PER_SECOND 130
+#define OPTIMAL_MIN_RANGE 115
+#define OPTIMAL_MAX_RANGE 119
+#define DRIVESPEED_MM_PER_SECOND 190
 // Structs
 typedef struct {
      byte totalSuppliedTires;
@@ -76,7 +78,7 @@ const Operation emptyOp = { .totalSuppliedTires = 0,
                             .tiresDeployedOnPole = {},
                             .tiresOnPoleAfterOperation = {},
                             .distanceOfPole = {},
-                            .tiresRemaining = 0,
+                            .tiresRemaining = 5,
                             .position_in_mm = 0
                             };
 
@@ -86,6 +88,7 @@ typedef enum {
     DRIVING,
     DEPLOYING,
     POLE_DETECTED,
+    ADJUSTING,
     RETURNING,
     COMPLETE
 } STATE;
@@ -107,6 +110,7 @@ typedef enum {
     MSG_P2A_REQUEST_TIRES_REMAINING,
     MSG_P2A_REQUEST_INITIALIZE_SENSOR,
     MSG_P2A_REQUEST_STATUS_SENSORS,
+    MSG_P2A_ADJUSTMENT_COMPLETE,
     
     // Arduino to PIC Messages
     MSG_A2P_SUCCESS = 100,
@@ -117,13 +121,17 @@ typedef enum {
     MSG_A2P_DEPLOY_STEPPER,
     MSG_A2P_COMPLETE_OP,
     MSG_A2P_SENSOR_TIMEOUT,
+    MSG_A2P_ADJUST_TOWARDS,
+    MSG_A2P_ADJUST_AWAY,
 
 } MSG_CODE;
 
 
 // Initial Settings
-byte leftmotor_speed = 59;
-byte rightmotor_speed = 70;
+// byte leftmotor_speed = 59;
+// byte rightmotor_speed = 70;
+byte leftmotor_speed = 72;
+byte rightmotor_speed = 81;
 bool debugMode = false;
 
 // Setup objects
@@ -226,6 +234,8 @@ void setup(void) {
     pinMode(leftmotor_pinB, OUTPUT);
     pinMode(rightmotor_pinA, OUTPUT);
     pinMode(rightmotor_pinB, OUTPUT);
+
+    randomSeed(analogRead(0));
 }
 
 // Variables
@@ -238,6 +248,7 @@ byte tiresRequired;         // Keep track of the remaining number of tires to de
 bool isDriving;             // Keep track of whether robot is driving or not
 bool dbg;
 int tick = 0;
+unsigned short measuredAdjustmentDistance;
 
 byte pstates[10];
 
@@ -259,8 +270,9 @@ void loop(void) {
             // Receive start signal, start operation
               // Reset current operations
                 currentOp.totalNumberOfPoles = 0;
-                currentOp.totalSuppliedTires = 15;
+                currentOp.totalSuppliedTires = 0;
                 currentOp.position_in_mm = 0;
+                currentOp.tiresRemaining = 5;
 
                 setState(DRIVING);
                 break;
@@ -341,6 +353,10 @@ void loop(void) {
                 }
                 break;
 
+            case MSG_P2A_ADJUSTMENT_COMPLETE:
+                setState(ADJUSTING);
+                break;
+
             default:
                 // Turn off motors and disable pole_detected_signal_pin
                 driveMotors(MOTORSTATE_OFF);
@@ -352,9 +368,8 @@ void loop(void) {
     }
 
     // Operation variables
-    short distanceMeasured;   // Measured value of the sensor distance
+    unsigned short distanceMeasured;   // Measured value of the sensor distance
     bool isSearching;       // Controls if the robot will be searching for poles
-
     // Operate depending on the state of the robot
     switch (currentState) {
 
@@ -377,15 +392,11 @@ void loop(void) {
                 isSearching = true;
             } else {
                 isSearching = false;
+                digitalWrite(pole_detected_signal_pin, HIGH);
             }
             
             // Check for poles while searching
             if (isSearching) {
-
-                // Toggle the pole detected LED while searching
-                if (tick % 2 == 0) {
-                    digitalWrite(pole_detected_signal_pin, !digitalRead(pole_detected_signal_pin));
-                }
 
                 // Measure the distance seen by the sensor
                 distanceMeasured = readSensor(Sensor_Base);
@@ -398,7 +409,7 @@ void loop(void) {
                         // Pole was detected, update operation data
                         currentOp.totalNumberOfPoles++;
                         currentOp.tiresDeployedOnPole[currentOp.totalNumberOfPoles - 1] = 0;
-                        currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1] = 0;
+                        currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1] = random(0, 2);
                         currentOp.distanceOfPole[currentOp.totalNumberOfPoles - 1] = currentOp.position_in_mm;
                         if (dbg) {
                             currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1] = pstates[currentOp.totalNumberOfPoles - 1];
@@ -406,11 +417,14 @@ void loop(void) {
                         
                         // Decide whether the pole requires 1 or 2 tires
                         // The first pole and every pole that is further than 30cm from the previous pole requires 2 tires
-                        if ((currentOp.totalNumberOfPoles == 0) || currentOp.position_in_mm - currentOp.distanceOfPole[currentOp.totalNumberOfPoles - 1] >= 300) {
+                        if ((currentOp.totalNumberOfPoles == 1) || currentOp.position_in_mm - currentOp.distanceOfPole[currentOp.totalNumberOfPoles - 1] >= 300) {
                             tiresRequired = 2;
                         } else {
                             tiresRequired = 1;
                         }
+
+                        tiresRequired -= currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1];
+
 
                         // // Check if tires are currently on the pole
                         // if ((readSensor(Sensor_Tire1) <= TIRE_DETECTED_RANGE) && readSensor(Sensor_Tire2) <= TIRE_DETECTED_RANGE) {
@@ -456,17 +470,19 @@ void loop(void) {
             break;
 
         case POLE_DETECTED:
+            // Check if can deploy
             if (tiresRequired > 0 && currentOp.tiresRemaining > 0) {
-                // Deploy a tire if required and one is available
                 delay(100);
-                tiresRequired--;
-                setState(DEPLOYING);
+                setState(ADJUSTING);
             } else {
                 // Otherwise continue driving
-                setState(DRIVING); 
+                setState(DRIVING);
                 // delay(500); (HACKY WAY OF NOT DETECTING THE SAME POLE)
             }
             
+            break;
+
+        case ADJUSTING:
             break;
 
         case DEPLOYING:
@@ -527,18 +543,29 @@ void setState(byte newState) {
             digitalWrite(pole_detected_signal_pin, HIGH);
             break;
 
+        case ADJUSTING:
+            measuredAdjustmentDistance = takeAverageSensorReading(Sensor_Base, 5);
+            if (measuredAdjustmentDistance > OPTIMAL_MAX_RANGE) {
+                serialCom.write(MSG_A2P_ADJUST_TOWARDS);
+            } else if (measuredAdjustmentDistance < OPTIMAL_MIN_RANGE) {
+                serialCom.write(MSG_A2P_ADJUST_AWAY);
+            } else {
+                setState(DEPLOYING);
+            }
+            break;
+
         case DEPLOYING:
             // Tell the pic to deploy the stepper
             serialCom.write(MSG_A2P_DEPLOY_STEPPER);
             // Keep the pole detected signal enabled
             digitalWrite(pole_detected_signal_pin, HIGH);
 
+            tiresRequired--;
             // Update current operation data
             currentOp.totalSuppliedTires++;
             currentOp.tiresDeployedOnPole[currentOp.totalNumberOfPoles - 1]++;
             currentOp.tiresOnPoleAfterOperation[currentOp.totalNumberOfPoles - 1]++;
             currentOp.tiresRemaining--;
-
             break;
 
         case RETURNING:
@@ -547,6 +574,8 @@ void setState(byte newState) {
 
             // Drive motors in reverse
             driveMotors(MOTORSTATE_BACKWARD);
+
+            currentOp.position_in_mm += 500;
             break;
 
         case COMPLETE:
@@ -580,21 +609,21 @@ void setState(byte newState) {
 // Read the value of the specified sensor
 unsigned short readSensor(VL53L0X sensor) {
     // Read the sensor
-    unsigned int distanceMeasured = sensor.readRangeContinuousMillimeters();
+    unsigned int measuredVal = sensor.readRangeContinuousMillimeters();
     if (sensor.timeoutOccurred()) {
         serialCom.write(MSG_A2P_SENSOR_TIMEOUT);
     }
 
-    if (distanceMeasured > 999) {
+    if (measuredVal > 999) {
         return (unsigned short)999;
     } else {
-        return (unsigned short)distanceMeasured;
+        return (unsigned short)measuredVal;
     }
 }
 
-short takeAverageSensorReading(VL53L0X sensor, byte numberOfReadings) {
+unsigned short takeAverageSensorReading(VL53L0X sensor, byte numberOfReadings) {
     // Keep track of the total readings
-    long summedReadings = 0;
+    unsigned long summedReadings = 0;
 
     // Add each reading to the total
     for (byte i = 0; i < numberOfReadings; i++) {
@@ -604,13 +633,13 @@ short takeAverageSensorReading(VL53L0X sensor, byte numberOfReadings) {
     }
 
     // Take the average by dividing by the number of readings
-    int averageReading = summedReadings / numberOfReadings;
+    unsigned int averageReading = summedReadings / numberOfReadings;
 
     // If the average reading is more than 0xFF, return 0xFF otherwise return average value
     if (averageReading > 999) {
         return 999;
     } else {
-        return (short)averageReading;
+        return (unsigned short)averageReading;
     }
 }
 

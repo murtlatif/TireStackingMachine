@@ -29,3 +29,32 @@ void driveStepper(unsigned char revolutions, unsigned char dir) {
     STEPPER_EN = 0;
     STEPPER_DIR = 0;
 }
+
+void driveMotors(unsigned char state) {
+    switch (state) {
+        case MOTOR_OFF:
+            MOTOR_BACK1 = 0;
+            MOTOR_BACK2 = 0;
+            MOTOR_FRONT1 = 0;
+            MOTOR_FRONT2 = 0;
+            break;
+
+        case MOTOR_TOWARDS:
+            MOTOR_BACK1 = 1;
+            MOTOR_BACK2 = 0;
+            MOTOR_FRONT1 = 1;
+            MOTOR_FRONT2 = 0;
+            break;
+
+        case MOTOR_AWAY:
+            MOTOR_BACK1 = 0;
+            MOTOR_BACK2 = 1;
+            MOTOR_FRONT1 = 0;
+            MOTOR_FRONT2 = 1;
+            break;
+
+        default:
+            break;
+
+    }
+}

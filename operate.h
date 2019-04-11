@@ -22,6 +22,15 @@
 #define BACKWARD 0  // Stepper motor direction
 #define FORWARD 1   // Stepper motor direction
 
+#define MOTOR_BACK1 LATCbits.LATC0
+#define MOTOR_BACK2 LATCbits.LATC1
+
+#define MOTOR_FRONT1 LATAbits.LATA1
+#define MOTOR_FRONT2 LATAbits.LATA3
+
+#define MOTOR_OFF 0
+#define MOTOR_TOWARDS 1
+#define MOTOR_AWAY 2
 /******************************** Constants **********************************/
 
 /********************************** Types ************************************/
@@ -30,5 +39,7 @@
 
 /************************ Public Function Prototypes *************************/
 void driveStepper(unsigned char revolutions, unsigned char dir);
+
+void driveMotors(unsigned char state);
 
 #endif	/* OPERATE_H */
