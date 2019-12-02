@@ -3,4 +3,7 @@
 !*.h
 !*.ino
 !/Arduino Code/
-
+!/img
+!*.JPEG
+!*.gif
+!README.md
